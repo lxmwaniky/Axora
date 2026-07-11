@@ -55,11 +55,13 @@ class ChatRepositoryImpl implements ChatRepository {
         fileType: ModelFileType.litertlm,
       ).fromFile(modelPath).install();
 
-      // 1024 gives the system prompt (~60 tok) + user message + response enough room.
-      // 512 caused DYNAMIC_UPDATE_SLICE KV-cache overflow on this device.
+      // 2048 gives the system prompt, user message, response, and multimodal audio/vision embeddings enough room.
+      // Smaller sizes (512 or 1024) cause DYNAMIC_UPDATE_SLICE KV-cache overflow on multimodal input.
       _model = await FlutterGemma.getActiveModel(
-        maxTokens: 1024,
+        maxTokens: 2048,
         preferredBackend: PreferredBackend.cpu,
+        supportImage: true,
+        supportAudio: true,
       );
       _engineReady = true;
     }
@@ -68,6 +70,8 @@ class ChatRepositoryImpl implements ChatRepository {
       _chat = await _model!.createChat(
         systemInstruction: AppConfig.defaultSystemInstruction,
         modelType: ModelType.gemma4,
+        supportImage: true,
+        supportAudio: true,
       );
       _chatReady = true;
     }
@@ -143,9 +147,13 @@ class ChatRepositoryImpl implements ChatRepository {
 
       final stream = _chat!.generateChatResponseAsync();
 
+      debugPrint("[ChatRepository] Starting Gemma response stream:");
       await for (final response in stream) {
         if (response is TextResponse) {
           accumulatedText += response.token;
+          if (kDebugMode) {
+            stdout.write(response.token);
+          }
           _messageController.add(
             ChatMessage(
               id: responseId,
@@ -157,6 +165,9 @@ class ChatRepositoryImpl implements ChatRepository {
           );
         }
       }
+      if (kDebugMode) {
+        stdout.writeln();
+      }
 
       final finalMessage = ChatMessage(
         id: responseId,
@@ -167,7 +178,7 @@ class ChatRepositoryImpl implements ChatRepository {
       );
       _history.add(finalMessage);
       _messageController.add(finalMessage);
-      debugPrint("[ChatRepository] Gemma inference complete.");
+      debugPrint("[ChatRepository] Gemma inference complete. Final response: '$accumulatedText'");
     } catch (e) {
       debugPrint("[ChatRepository] Error running Gemma inference: $e");
       final errorMessage = ChatMessage(

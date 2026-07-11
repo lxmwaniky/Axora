@@ -142,7 +142,7 @@ class _MessageInputState extends State<MessageInput> {
       _recordingTimer?.cancel();
       setState(() {
         _isRecording = true;
-        _recordingMs = 20000; // Countdown starts at 20 seconds
+        _recordingMs = 15000; // Countdown starts at 15 seconds
         _recordingPath = path;
         _isMenuExpanded = false;
       });
