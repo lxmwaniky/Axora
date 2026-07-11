@@ -199,10 +199,16 @@ class HubScreen extends StatelessWidget {
                         : 'No messages yet - start chatting!';
                     final isCurrentActive = session.id == chatNotifier.currentSessionId;
 
+                    final lastActivity = session.messages.isNotEmpty
+                        ? session.messages.last.timestamp
+                        : session.createdAt;
+                    final timeStr = _getRelativeTime(lastActivity);
+
                     return _buildChatListItem(
                       context,
                       title: session.title,
                       subtitle: lastMessage,
+                      time: timeStr,
                       icon: Icons.psychology_outlined,
                       gradient: isCurrentActive 
                           ? AppColors.primaryGradient 
@@ -279,10 +285,33 @@ class HubScreen extends StatelessWidget {
     );
   }
 
+  String _getRelativeTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inDays == 0 && now.day == dateTime.day) {
+      final hour = dateTime.hour.toString().padLeft(2, '0');
+      final minute = dateTime.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    } else if (difference.inDays == 1 || (difference.inDays == 0 && now.day != dateTime.day)) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      final weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      return weekdayNames[dateTime.weekday - 1];
+    } else {
+      final monthNames = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      return '${monthNames[dateTime.month - 1]} ${dateTime.day}';
+    }
+  }
+
   Widget _buildChatListItem(
     BuildContext context, {
     required String title,
     required String subtitle,
+    required String time,
     required IconData icon,
     required Gradient gradient,
     required bool isActive,
@@ -335,15 +364,30 @@ class HubScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        time,
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(

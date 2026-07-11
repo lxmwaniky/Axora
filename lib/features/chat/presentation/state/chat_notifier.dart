@@ -181,15 +181,13 @@ class ChatNotifier extends ChangeNotifier {
 
     // Optimistically add user message and set writing to true
     activeSession.messages.add(userMessage);
+    if (isFirstMessage) {
+      activeSession.title = text;
+    }
     _isWriting = true;
     _sortSessions();
     _saveSessionsToDisk();
     notifyListeners();
-
-    // Trigger title generation in background if this is the first message (Option B)
-    if (isFirstMessage) {
-      _generateTitleForSession(activeSession.id, text);
-    }
 
     try {
       await _repository.sendMessage(userMessage);
@@ -197,15 +195,6 @@ class ChatNotifier extends ChangeNotifier {
       debugPrint("Failed to send message: $e");
       _isWriting = false;
       notifyListeners();
-    }
-  }
-
-  Future<void> _generateTitleForSession(String sessionId, String firstMessage) async {
-    try {
-      final generatedTitle = await _repository.generateTitle(firstMessage);
-      renameSession(sessionId, generatedTitle);
-    } catch (e) {
-      debugPrint("Error generating session title: $e");
     }
   }
 

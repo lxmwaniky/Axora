@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/entities/chat_message.dart';
 
@@ -51,14 +52,46 @@ class ChatBubble extends StatelessWidget {
                       _buildAttachmentWidget(context),
                       const SizedBox(height: 8),
                     ],
-                    Text(
-                      message.text,
-                      style: TextStyle(
-                        color: isUser ? AppColors.senderBubbleText : AppColors.receiverBubbleText,
-                        fontSize: 15,
-                        height: 1.3,
+                    if (isUser)
+                      Text(
+                        message.text,
+                        style: TextStyle(
+                          color: AppColors.senderBubbleText,
+                          fontSize: 15,
+                          height: 1.3,
+                        ),
+                      )
+                    else
+                      MarkdownBody(
+                        data: message.text,
+                        styleSheet: MarkdownStyleSheet(
+                          p: TextStyle(
+                            color: AppColors.receiverBubbleText,
+                            fontSize: 15,
+                            height: 1.4,
+                          ),
+                          strong: TextStyle(
+                            color: AppColors.receiverBubbleText,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          h2: TextStyle(
+                            color: AppColors.receiverBubbleText,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            height: 1.6,
+                          ),
+                          listBullet: TextStyle(
+                            color: AppColors.receiverBubbleText,
+                            fontSize: 15,
+                          ),
+                          code: TextStyle(
+                            color: AppColors.receiverBubbleText,
+                            backgroundColor: Colors.black26,
+                            fontSize: 13,
+                          ),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

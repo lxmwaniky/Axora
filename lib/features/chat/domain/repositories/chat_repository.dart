@@ -6,5 +6,4 @@ abstract class ChatRepository {
   Future<void> sendMessage(ChatMessage message);
   Future<void> clearHistory();
   Future<void> startNewSession();
-  Future<String> generateTitle(String firstMessage);
 }

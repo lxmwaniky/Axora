@@ -13,8 +13,15 @@ class ChatRepositoryImpl implements ChatRepository {
   final List<ChatMessage> _history = [];
 
   InferenceModel? _model;
-  dynamic _chat; // the created chat/session object
-  bool _engineInitialized = false;
+  InferenceChat? _chat;
+  bool _engineReady = false;   // true once the model weights are loaded
+  bool _chatReady  = false;    // true once _chat is open and usable
+
+  static const String _mainSystemInstruction =
+      'You are inkq, a concise study assistant. '
+      'Keep all responses to 3–6 sentences maximum. '
+      'Use Markdown: **bold** for key terms, ## for section headers when helpful, '
+      '- for bullet lists. Never write long walls of text.';
 
   ChatRepositoryImpl() {
     _history.add(
@@ -41,25 +48,32 @@ class ChatRepositoryImpl implements ChatRepository {
     return '${directory.path}/${AppConfig.modelFilename}';
   }
 
-  /// Sets up the LiteRT-LM engine and loads the model exactly once.
+  /// Loads the model weights exactly once, then opens the main chat session.
   Future<void> _ensureEngineInitialized(String modelPath) async {
-    if (_engineInitialized) return;
+    if (!_engineReady) {
+      await FlutterGemma.initialize(inferenceEngines: [LiteRtLmEngine()]);
 
-    await FlutterGemma.initialize(inferenceEngines: [LiteRtLmEngine()]);
+      await FlutterGemma.installModel(
+        modelType: ModelType.gemma4,
+        fileType: ModelFileType.litertlm,
+      ).fromFile(modelPath).install();
 
-    await FlutterGemma.installModel(
-      modelType: ModelType.gemma4,
-      fileType: ModelFileType.litertlm,
-    ).fromFile(modelPath).install();
+      // 1024 gives the system prompt (~60 tok) + user message + response enough room.
+      // 512 caused DYNAMIC_UPDATE_SLICE KV-cache overflow on this device.
+      _model = await FlutterGemma.getActiveModel(
+        maxTokens: 1024,
+        preferredBackend: PreferredBackend.cpu,
+      );
+      _engineReady = true;
+    }
 
-    // CPU backend — proven working on this hardware; GPU crashed during testing.
-    _model = await FlutterGemma.getActiveModel(
-      maxTokens: 2048,
-      preferredBackend: PreferredBackend.cpu,
-    );
-
-    _chat = await _model!.createChat();
-    _engineInitialized = true;
+    if (!_chatReady) {
+      _chat = await _model!.createChat(
+        systemInstruction: _mainSystemInstruction,
+        modelType: ModelType.gemma4,
+      );
+      _chatReady = true;
+    }
   }
 
   @override
@@ -99,12 +113,20 @@ class ChatRepositoryImpl implements ChatRepository {
   @override
   Future<void> startNewSession() async {
     try {
-      if (_engineInitialized && _model != null) {
+      if (_engineReady && _model != null) {
         debugPrint("[ChatRepository] Starting new Gemma session...");
-        _chat = await _model!.createChat();
+        if (_chatReady && _chat != null) {
+          await _chat!.close();
+        }
+        _chat = await _model!.createChat(
+          systemInstruction: _mainSystemInstruction,
+          modelType: ModelType.gemma4,
+        );
+        _chatReady = true;
       }
     } catch (e) {
       debugPrint("[ChatRepository] Failed to start new session: $e");
+      _chatReady = false;
     }
   }
 
@@ -119,11 +141,11 @@ class ChatRepositoryImpl implements ChatRepository {
       debugPrint("[ChatRepository] Ensuring Gemma engine is initialized...");
       await _ensureEngineInitialized(modelPath);
 
-      await _chat.addQueryChunk(
+      await _chat!.addQueryChunk(
         Message.text(text: userMessage.text, isUser: true),
       );
 
-      final stream = _chat.generateChatResponseAsync();
+      final stream = _chat!.generateChatResponseAsync();
 
       await for (final response in stream) {
         if (response is TextResponse) {
@@ -162,42 +184,5 @@ class ChatRepositoryImpl implements ChatRepository {
       _history.add(errorMessage);
       _messageController.add(errorMessage);
     }
-  }
-
-  @override
-  Future<String> generateTitle(String firstMessage) async {
-    final normalized = firstMessage.toLowerCase().trim();
-
-    if (normalized.contains("hello") ||
-        normalized.contains("hi ") ||
-        normalized == "hi") {
-      return "Casual Greeting";
-    }
-    if (normalized.contains("dsa") ||
-        normalized.contains("data structure") ||
-        normalized.contains("algorithm")) {
-      return "DSA Study";
-    }
-    if (normalized.contains("math") ||
-        normalized.contains("calculus") ||
-        normalized.contains("algebra")) {
-      return "Math Solver";
-    }
-    if (normalized.contains("physics") ||
-        normalized.contains("force") ||
-        normalized.contains("gravity")) {
-      return "Physics Study";
-    }
-
-    final words = firstMessage.split(RegExp(r'\s+')).take(3).join(" ");
-    String title = words;
-    if (words.length > 20) {
-      title = "${words.substring(0, 17)}...";
-    }
-    title = title
-        .split(' ')
-        .map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : '')
-        .join(' ');
-    return "$title";
   }
 }
