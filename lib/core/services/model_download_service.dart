@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_downloader/flutter_downloader.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../config/app_config.dart';
@@ -124,19 +125,42 @@ class ModelDownloadService {
       return;
     }
 
-    final directory = await getApplicationSupportDirectory();
-    final savePath = directory.path;
-
     // HuggingFace direct download link
     const downloadUrl = 'https://huggingface.co/${AppConfig.hfModelRepo}/resolve/main/${AppConfig.modelFilename}';
 
+    stateNotifier.value = DownloadState.downloading;
+    progressNotifier.value = 0;
+    errorNotifier.value = null;
+
+    try {
+      debugPrint("[ModelDownloadService] Pre-flight check on: $downloadUrl");
+      final response = await http.head(Uri.parse(downloadUrl)).timeout(const Duration(seconds: 10));
+      debugPrint("[ModelDownloadService] Pre-flight response code: ${response.statusCode}");
+      if (response.statusCode >= 400) {
+        stateNotifier.value = DownloadState.failed;
+        errorNotifier.value = "Server access denied (HTTP ${response.statusCode}). Please verify connection.";
+        return;
+      }
+    } catch (e) {
+      debugPrint("[ModelDownloadService] Pre-flight failed: $e");
+      stateNotifier.value = DownloadState.failed;
+      errorNotifier.value = "Failed to connect to HuggingFace. Please verify network access.";
+      return;
+    }
+
+    final directory = await getApplicationSupportDirectory();
+    final savePath = directory.path;
+
     debugPrint("[ModelDownloadService] Initiating download. URL: $downloadUrl, SavePath: $savePath");
 
-    // Start background download directly with the final model file name
+    // Start background download directly with the final model file name and User-Agent headers
     _taskId = await FlutterDownloader.enqueue(
       url: downloadUrl,
       savedDir: savePath,
       fileName: AppConfig.modelFilename,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Mobile Safari/537.36',
+      },
       showNotification: true, // Show progress in Notification Bar
       openFileFromNotification: false,
       saveInPublicStorage: false, // Store in private ApplicationSupport sandbox
@@ -164,19 +188,51 @@ class ModelDownloadService {
       _taskId = null;
     }
     
-    // Explicitly delete the model file if it exists
+    await _cleanupModelFiles();
+
+    stateNotifier.value = DownloadState.notStarted;
+    progressNotifier.value = 0;
+  }
+
+  /// Sweeps the app directory and purges any corrupt model file or partial download artifacts
+  Future<void> _cleanupModelFiles() async {
     try {
       final file = File(await getModelPath());
       if (await file.exists()) {
         await file.delete();
-        debugPrint("Successfully deleted incomplete model file on cancel.");
+        debugPrint("Deleted main model file.");
+      }
+
+      // Sweep the directory for any partial download parts left behind
+      final directory = await getApplicationSupportDirectory();
+      if (await directory.exists()) {
+        final List<FileSystemEntity> files = directory.listSync();
+        final partialExtensions = ['.part', '.tmp', '.download', '.crdownload'];
+        
+        for (final f in files) {
+          if (f is File) {
+            final pathLower = f.path.toLowerCase();
+            final isPartial = partialExtensions.any((ext) => pathLower.endsWith(ext));
+            final isStrayModel = pathLower.contains('gemma') || pathLower.contains('litertlm');
+
+            if (isPartial || isStrayModel) {
+              await f.delete();
+              debugPrint("Cleaned up orphaned/partial file: ${f.path}");
+            }
+          }
+        }
       }
     } catch (e) {
-      debugPrint("Error deleting file during cancel: $e");
+      debugPrint("Error during directory cleanup: $e");
     }
+  }
 
+  /// Nuclear reset option for user Settings
+  Future<void> purgeAllModelFiles() async {
+    await cancelDownload();
     stateNotifier.value = DownloadState.notStarted;
     progressNotifier.value = 0;
+    errorNotifier.value = null;
   }
 
   Future<void> _restoreActiveTask() async {

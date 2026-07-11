@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/entities/chat_message.dart';
 
@@ -24,6 +29,14 @@ class _MessageInputState extends State<MessageInput> {
   String? _selectedAttachmentPath;
   AttachmentType _selectedAttachmentType = AttachmentType.none;
 
+  // Audio Recording State
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  bool _isRecording = false;
+  bool _isLocked = false;
+  String? _recordingPath;
+  Timer? _recordingTimer;
+  int _recordingSeconds = 0;
+
   @override
   void initState() {
     super.initState();
@@ -33,6 +46,8 @@ class _MessageInputState extends State<MessageInput> {
 
   @override
   void dispose() {
+    _recordingTimer?.cancel();
+    _audioRecorder.dispose();
     _textController.removeListener(_onTextChanged);
     _focusNode.removeListener(_onFocusChanged);
     _textController.dispose();
@@ -73,6 +88,168 @@ class _MessageInputState extends State<MessageInput> {
       _selectedAttachmentType = AttachmentType.none;
       _isMenuExpanded = false;
     });
+  }
+
+  Future<void> _startRecording() async {
+    try {
+      final hasPermission = await Permission.microphone.request().isGranted;
+      if (!hasPermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: AppColors.surfaceLight,
+              content: Text('Microphone permission is required to record voice notes.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final path = '${tempDir.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+      const config = RecordConfig(
+        encoder: AudioEncoder.wav,
+        sampleRate: 16000,
+        numChannels: 1,
+      );
+
+      await _audioRecorder.start(config, path: path);
+
+      _recordingTimer?.cancel();
+      setState(() {
+        _isRecording = true;
+        _isLocked = false;
+        _recordingSeconds = 0;
+        _recordingPath = path;
+        _isMenuExpanded = false;
+      });
+
+      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        setState(() {
+          _recordingSeconds++;
+          // Auto-stop recording if it reaches 30 seconds (Gemma limit)
+          if (_recordingSeconds >= 30) {
+            _stopRecording();
+          }
+        });
+      });
+    } catch (e) {
+      debugPrint('Error starting recording: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.surfaceLight,
+            content: Text('Failed to start recording: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+
+    if (!_isRecording) return;
+
+    try {
+      final path = await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+        _isLocked = false;
+        if (path != null) {
+          _selectedAttachmentType = AttachmentType.audio;
+          _selectedAttachmentPath = path;
+        }
+      });
+      if (path != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.surfaceLight,
+            content: Row(
+              children: [
+                Icon(Icons.mic, color: AppColors.primary),
+                SizedBox(width: 8),
+                Text('Recorded voice note (Max 30s)'),
+              ],
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error stopping recording: $e');
+      setState(() {
+        _isRecording = false;
+      });
+    }
+  }
+
+  Future<void> _cancelRecording() async {
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+    if (!_isRecording) return;
+    try {
+      await _audioRecorder.stop();
+      if (_recordingPath != null) {
+        final file = File(_recordingPath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+      setState(() {
+        _isRecording = false;
+        _recordingPath = null;
+      });
+    } catch (e) {
+      debugPrint('Error canceling recording: $e');
+      setState(() {
+        _isRecording = false;
+      });
+    }
+  }
+
+  String _formatDuration(int seconds) {
+    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
+    final secs = (seconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$secs';
+  }
+
+  void _handleLongPressStart() {
+    _startRecording();
+  }
+
+  void _handleLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
+    if (_isRecording && !_isLocked) {
+      if (details.localOffsetFromOrigin.dy < -50) {
+        setState(() {
+          _isLocked = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(milliseconds: 1500),
+            backgroundColor: AppColors.surfaceLight,
+            content: Row(
+              children: [
+                Icon(Icons.lock_outline, color: AppColors.primary),
+                SizedBox(width: 8),
+                Text('Recording locked. Tap stop when done.'),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _handleLongPressEnd() {
+    if (_isRecording && !_isLocked) {
+      _stopRecording();
+    }
   }
 
   void _selectMockAttachment(AttachmentType type) {
@@ -145,7 +322,7 @@ class _MessageInputState extends State<MessageInput> {
 
   @override
   Widget build(BuildContext context) {
-    final showPlusButton = !_showSendButton && _selectedAttachmentType == AttachmentType.none;
+    final showPlusButton = !_showSendButton && _selectedAttachmentType == AttachmentType.none && !_isRecording;
 
     return TapRegion(
       onTapOutside: (event) {
@@ -224,51 +401,102 @@ class _MessageInputState extends State<MessageInput> {
                           ),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
                           child: Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _textController,
-                                  focusNode: _focusNode,
-                                  textCapitalization: TextCapitalization.sentences,
-                                  style: const TextStyle(color: Colors.white),
-                                  maxLines: null,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Talk to inkq...',
-                                    hintStyle: TextStyle(color: AppColors.textMuted),
-                                    border: InputBorder.none,
-                                    contentPadding: EdgeInsets.symmetric(vertical: 10),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Send button with send icon inside circular container
-                              if (_showSendButton || _selectedAttachmentType != AttachmentType.none)
-                                GestureDetector(
-                                  onTap: _handleSend,
-                                  child: Container(
-                                    width: 32,
-                                    height: 32,
-                                    decoration: const BoxDecoration(
-                                      color: AppColors.primary,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Padding(
-                                      padding: EdgeInsets.only(left: 3.0),
-                                      child: Icon(
-                                        Icons.send_rounded,
-                                        color: Colors.white,
-                                        size: 16,
+                            children: _isRecording
+                                ? [
+                                    const _BlinkingDot(),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _isLocked
+                                            ? 'Recording... ${_formatDuration(_recordingSeconds)}'
+                                            : 'Recording... ${_formatDuration(_recordingSeconds)}  Swipe up to lock 🔒',
+                                        style: const TextStyle(
+                                          color: Colors.redAccent,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                )
-                              else if (showPlusButton)
-                                // Placeholder space inside text field for the floating plus button
-                                const SizedBox(
-                                  width: 28,
-                                  height: 28,
-                                ),
-                            ],
+                                    if (_isLocked) ...[
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, color: Colors.white70, size: 20),
+                                        onPressed: _cancelRecording,
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      GestureDetector(
+                                        onTap: _stopRecording,
+                                        child: Container(
+                                          width: 32,
+                                          height: 32,
+                                          decoration: const BoxDecoration(
+                                            color: Colors.redAccent,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.stop_rounded,
+                                            color: Colors.white,
+                                            size: 16,
+                                          ),
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      const Padding(
+                                        padding: EdgeInsets.only(right: 4.0),
+                                        child: Icon(
+                                          Icons.keyboard_double_arrow_up_rounded,
+                                          color: Colors.white38,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ],
+                                  ]
+                                : [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _textController,
+                                        focusNode: _focusNode,
+                                        textCapitalization: TextCapitalization.sentences,
+                                        style: const TextStyle(color: Colors.white),
+                                        maxLines: null,
+                                        decoration: const InputDecoration(
+                                          hintText: 'Talk to inkq...',
+                                          hintStyle: TextStyle(color: AppColors.textMuted),
+                                          border: InputBorder.none,
+                                          contentPadding: EdgeInsets.symmetric(vertical: 10),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    // Send button with send icon inside circular container
+                                    if (_showSendButton || _selectedAttachmentType != AttachmentType.none)
+                                      GestureDetector(
+                                        onTap: _handleSend,
+                                        child: Container(
+                                          width: 32,
+                                          height: 32,
+                                          decoration: const BoxDecoration(
+                                            color: AppColors.primary,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Padding(
+                                            padding: EdgeInsets.only(left: 3.0),
+                                            child: Icon(
+                                              Icons.send_rounded,
+                                              color: Colors.white,
+                                              size: 16,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else if (showPlusButton)
+                                      // Placeholder space inside text field for the floating plus and mic buttons
+                                      const SizedBox(
+                                        width: 72,
+                                        height: 28,
+                                      ),
+                                  ],
                           ),
                         ),
                       ),
@@ -307,37 +535,12 @@ class _MessageInputState extends State<MessageInput> {
                             duration: const Duration(milliseconds: 150),
                             height: _isMenuExpanded ? 10 : 0,
                           ),
-                          // 2. Audio Option
+                          // 2. Document Option
                           AnimatedOpacity(
                             duration: const Duration(milliseconds: 180),
                             opacity: _isMenuExpanded ? 1.0 : 0.0,
                             child: AnimatedScale(
                               duration: const Duration(milliseconds: 180),
-                              scale: _isMenuExpanded ? 1.0 : 0.0,
-                              child: SizedBox(
-                                height: _isMenuExpanded ? 40 : 0,
-                                child: _buildFloatingOption(
-                                  icon: Icons.mic_none_outlined,
-                                  color: Colors.redAccent,
-                                  tooltip: 'Audio',
-                                  onTap: () {
-                                    _selectMockAttachment(AttachmentType.audio);
-                                    setState(() => _isMenuExpanded = false);
-                                  },
-                                ),
-                              ),
-                            ),
-                          ),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            height: _isMenuExpanded ? 10 : 0,
-                          ),
-                          // 3. Document Option
-                          AnimatedOpacity(
-                            duration: const Duration(milliseconds: 210),
-                            opacity: _isMenuExpanded ? 1.0 : 0.0,
-                            child: AnimatedScale(
-                              duration: const Duration(milliseconds: 210),
                               scale: _isMenuExpanded ? 1.0 : 0.0,
                               child: SizedBox(
                                 height: _isMenuExpanded ? 40 : 0,
@@ -354,27 +557,50 @@ class _MessageInputState extends State<MessageInput> {
                             ),
                           ),
                           AnimatedContainer(
-                            duration: const Duration(milliseconds: 210),
+                            duration: const Duration(milliseconds: 180),
                             height: _isMenuExpanded ? 12 : 0,
                           ),
-                          // Plus / Close rotating trigger button inside the text box right side
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            icon: AnimatedRotation(
-                              duration: const Duration(milliseconds: 200),
-                              turns: _isMenuExpanded ? 0.125 : 0.0,
-                              child: Icon(
-                                _isMenuExpanded ? Icons.add_circle : Icons.add_circle_outline_rounded,
-                                color: _isMenuExpanded ? AppColors.primary : Colors.white70,
-                                size: 28,
+                          // Plus/Close trigger and Mic button side-by-side
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                icon: AnimatedRotation(
+                                  duration: const Duration(milliseconds: 200),
+                                  turns: _isMenuExpanded ? 0.125 : 0.0,
+                                  child: Icon(
+                                    _isMenuExpanded ? Icons.add_circle : Icons.add_circle_outline_rounded,
+                                    color: _isMenuExpanded ? AppColors.primary : Colors.white70,
+                                    size: 28,
+                                  ),
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _isMenuExpanded = !_isMenuExpanded;
+                                  });
+                                },
                               ),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _isMenuExpanded = !_isMenuExpanded;
-                              });
-                            },
+                              const SizedBox(width: 12),
+                              GestureDetector(
+                                onLongPressStart: (_) => _handleLongPressStart(),
+                                onLongPressMoveUpdate: (details) => _handleLongPressMoveUpdate(details),
+                                onLongPressEnd: (_) => _handleLongPressEnd(),
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.transparent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.mic_none_rounded,
+                                    color: Colors.white70,
+                                    size: 28,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -383,6 +609,47 @@ class _MessageInputState extends State<MessageInput> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BlinkingDot extends StatefulWidget {
+  const _BlinkingDot();
+
+  @override
+  State<_BlinkingDot> createState() => _BlinkingDotState();
+}
+
+class _BlinkingDotState extends State<_BlinkingDot> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: const BoxDecoration(
+          color: Colors.redAccent,
+          shape: BoxShape.circle,
         ),
       ),
     );

@@ -76,5 +76,7 @@
 		<string>fetch</string>
 		<string>processing</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app requires microphone access to record voice notes for inkq study assistant.</string>
 </dict>
 </plist>
