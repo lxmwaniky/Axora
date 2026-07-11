@@ -184,8 +184,6 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                         return const SizedBox.shrink();
                       }
 
-                      final displayProgress = progress < 0 ? 0 : progress;
-
                       return Column(
                         children: [
                           Row(
@@ -194,16 +192,14 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                               Text(
                                 state == DownloadState.completed
                                     ? 'Completed'
-                                    : state == DownloadState.failed
-                                        ? 'Failed'
-                                        : 'Downloading...',
+                                    : 'Downloading...',
                                 style: const TextStyle(
                                   color: AppColors.textSecondary,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                               Text(
-                                '$displayProgress%',
+                                '$progress%',
                                 style: const TextStyle(
                                   color: AppColors.primary,
                                   fontWeight: FontWeight.bold,
@@ -214,32 +210,13 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                           const SizedBox(height: 8),
                           // Wavy progress indicator
                           WavyProgressIndicator(
-                            value: displayProgress / 100,
+                            value: progress / 100,
                             isDownloading: state == DownloadState.downloading,
                           ),
                           const SizedBox(height: 6),
-                          ValueListenableBuilder<String?>(
-                            valueListenable: widget.downloadService.errorNotifier,
-                            builder: (context, error, child) {
-                              if (error != null && state == DownloadState.failed) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 4.0),
-                                  child: Text(
-                                    error,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Colors.redAccent,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                );
-                              }
-                              return const Text(
-                                'You can close the app. Progress is shown in the notification bar.',
-                                style: TextStyle(color: AppColors.textMuted, fontSize: 11),
-                              );
-                            },
+                          const Text(
+                            'You can close the app. Progress is shown in the notification bar.',
+                            style: TextStyle(color: AppColors.textMuted, fontSize: 11),
                           ),
                           const SizedBox(height: 24),
                         ],
