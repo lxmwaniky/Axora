@@ -132,8 +132,8 @@ class _MessageInputState extends State<MessageInput> {
         }
         setState(() {
           _recordingSeconds++;
-          // Auto-stop recording if it reaches 30 seconds (Gemma limit)
-          if (_recordingSeconds >= 30) {
+          // Auto-stop recording if it reaches 20 seconds (Gemma limit)
+          if (_recordingSeconds >= 20) {
             _stopRecording();
           }
         });
@@ -175,7 +175,7 @@ class _MessageInputState extends State<MessageInput> {
               children: [
                 Icon(Icons.mic, color: AppColors.primary),
                 SizedBox(width: 8),
-                Text('Recorded voice note (Max 30s)'),
+                Text('Recorded voice note (Max 20s)'),
               ],
             ),
           ),
@@ -405,15 +405,25 @@ class _MessageInputState extends State<MessageInput> {
                                 ? [
                                     const _BlinkingDot(),
                                     const SizedBox(width: 8),
+                                    Text(
+                                      _formatDuration(_recordingSeconds),
+                                      style: const TextStyle(
+                                        color: Colors.redAccent,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    const _AudioWaveforms(),
+                                    const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
                                         _isLocked
-                                            ? 'Recording... ${_formatDuration(_recordingSeconds)}'
-                                            : 'Recording... ${_formatDuration(_recordingSeconds)}  Swipe up to lock 🔒',
-                                        style: const TextStyle(
-                                          color: Colors.redAccent,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
+                                            ? ''
+                                            : '  Swipe up to lock 🔒',
+                                        style: TextStyle(
+                                          color: Colors.white.withValues(alpha: 0.5),
+                                          fontSize: 12,
                                         ),
                                       ),
                                     ),
@@ -652,6 +662,59 @@ class _BlinkingDotState extends State<_BlinkingDot> with SingleTickerProviderSta
           shape: BoxShape.circle,
         ),
       ),
+    );
+  }
+}
+
+class _AudioWaveforms extends StatefulWidget {
+  const _AudioWaveforms();
+
+  @override
+  State<_AudioWaveforms> createState() => _AudioWaveformsState();
+}
+
+class _AudioWaveformsState extends State<_AudioWaveforms> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(6, (index) {
+            final double animatedValue = index % 2 == 0 
+                ? _controller.value 
+                : 1.0 - _controller.value;
+            final double height = 4.0 + (animatedValue * 14.0);
+            return Container(
+              width: 3,
+              height: height,
+              margin: const EdgeInsets.symmetric(horizontal: 1.5),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(1.5),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }
