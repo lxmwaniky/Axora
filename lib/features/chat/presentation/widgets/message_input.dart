@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/entities/chat_message.dart';
 
@@ -32,22 +33,44 @@ class _MessageInputState extends State<MessageInput> {
   // Audio Recording State
   final AudioRecorder _audioRecorder = AudioRecorder();
   bool _isRecording = false;
-  bool _isLocked = false;
   String? _recordingPath;
   Timer? _recordingTimer;
-  int _recordingSeconds = 0;
+  int _recordingMs = 0;
+
+  // Audio Player State for Previewing
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _showAudioPreview = false;
+  bool _isPlaying = false;
+  Duration _previewPosition = Duration.zero;
+  Duration _previewDuration = Duration.zero;
+  StreamSubscription? _positionSub;
+  StreamSubscription? _durationSub;
+  StreamSubscription? _stateSub;
 
   @override
   void initState() {
     super.initState();
     _textController.addListener(_onTextChanged);
     _focusNode.addListener(_onFocusChanged);
+    _positionSub = _audioPlayer.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _previewPosition = p);
+    });
+    _durationSub = _audioPlayer.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _previewDuration = d);
+    });
+    _stateSub = _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (mounted) setState(() => _isPlaying = state == PlayerState.playing);
+    });
   }
 
   @override
   void dispose() {
     _recordingTimer?.cancel();
     _audioRecorder.dispose();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _stateSub?.cancel();
+    _audioPlayer.dispose();
     _textController.removeListener(_onTextChanged);
     _focusNode.removeListener(_onFocusChanged);
     _textController.dispose();
@@ -119,22 +142,20 @@ class _MessageInputState extends State<MessageInput> {
       _recordingTimer?.cancel();
       setState(() {
         _isRecording = true;
-        _isLocked = false;
-        _recordingSeconds = 0;
+        _recordingMs = 20000; // Countdown starts at 20 seconds
         _recordingPath = path;
         _isMenuExpanded = false;
       });
 
-      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _recordingTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
         if (!mounted) {
           timer.cancel();
           return;
         }
         setState(() {
-          _recordingSeconds++;
-          // Auto-stop recording if it reaches 20 seconds (Gemma limit)
-          if (_recordingSeconds >= 20) {
-            _stopRecording();
+          _recordingMs -= 100;
+          if (_recordingMs <= 0) {
+            _stopRecordingAndShowPreview();
           }
         });
       });
@@ -151,7 +172,7 @@ class _MessageInputState extends State<MessageInput> {
     }
   }
 
-  Future<void> _stopRecording() async {
+  Future<void> _stopRecordingAndShowPreview() async {
     _recordingTimer?.cancel();
     _recordingTimer = null;
 
@@ -161,30 +182,37 @@ class _MessageInputState extends State<MessageInput> {
       final path = await _audioRecorder.stop();
       setState(() {
         _isRecording = false;
-        _isLocked = false;
         if (path != null) {
-          _selectedAttachmentType = AttachmentType.audio;
-          _selectedAttachmentPath = path;
+          _recordingPath = path;
+          _showAudioPreview = true;
+          _previewPosition = Duration.zero;
+          _previewDuration = Duration.zero;
+          _isPlaying = false;
         }
       });
-      if (path != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.surfaceLight,
-            content: Row(
-              children: [
-                Icon(Icons.mic, color: AppColors.primary),
-                SizedBox(width: 8),
-                Text('Recorded voice note (Max 20s)'),
-              ],
-            ),
-          ),
-        );
-      }
     } catch (e) {
       debugPrint('Error stopping recording: $e');
       setState(() {
         _isRecording = false;
+      });
+    }
+  }
+
+  Future<void> _stopAndSendVoiceNote() async {
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+    if (!_isRecording) return;
+    try {
+      final path = await _audioRecorder.stop();
+      if (path != null) {
+        widget.onSendMessage('', attachmentPath: path, attachmentType: AttachmentType.audio);
+      }
+    } catch (e) {
+      debugPrint('Error stop and send voice note: $e');
+    } finally {
+      setState(() {
+        _isRecording = false;
+        _recordingPath = null;
       });
     }
   }
@@ -213,43 +241,69 @@ class _MessageInputState extends State<MessageInput> {
     }
   }
 
-  String _formatDuration(int seconds) {
-    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
-    final secs = (seconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$secs';
+  String _formatRecordingTime(int ms) {
+    if (ms < 0) ms = 0;
+    final int minutes = (ms ~/ 60000);
+    final int seconds = (ms % 60000) ~/ 1000;
+    final int tenths = (ms % 1000) ~/ 100;
+    final String minutesStr = minutes.toString().padLeft(2, '0');
+    final String secondsStr = seconds.toString().padLeft(2, '0');
+    return '$minutesStr:$secondsStr.$tenths';
   }
 
-  void _handleLongPressStart() {
-    _startRecording();
-  }
-
-  void _handleLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
-    if (_isRecording && !_isLocked) {
-      if (details.localOffsetFromOrigin.dy < -50) {
-        setState(() {
-          _isLocked = true;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            duration: Duration(milliseconds: 1500),
-            backgroundColor: AppColors.surfaceLight,
-            content: Row(
-              children: [
-                Icon(Icons.lock_outline, color: AppColors.primary),
-                SizedBox(width: 8),
-                Text('Recording locked. Tap stop when done.'),
-              ],
-            ),
-          ),
-        );
+  Future<void> _playPausePreview() async {
+    if (_recordingPath == null) return;
+    try {
+      if (_isPlaying) {
+        await _audioPlayer.pause();
+      } else {
+        await _audioPlayer.play(DeviceFileSource(_recordingPath!));
       }
+    } catch (e) {
+      debugPrint('Error playing/pausing preview: $e');
     }
   }
 
-  void _handleLongPressEnd() {
-    if (_isRecording && !_isLocked) {
-      _stopRecording();
+  Future<void> _deletePreview() async {
+    try {
+      await _audioPlayer.stop();
+      if (_recordingPath != null) {
+        final file = File(_recordingPath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error deleting preview: $e');
+    } finally {
+      setState(() {
+        _showAudioPreview = false;
+        _recordingPath = null;
+        _isPlaying = false;
+        _previewPosition = Duration.zero;
+        _previewDuration = Duration.zero;
+      });
     }
+  }
+
+  void _sendVoiceNote() {
+    _audioPlayer.stop();
+    if (_recordingPath != null) {
+      widget.onSendMessage('', attachmentPath: _recordingPath, attachmentType: AttachmentType.audio);
+    }
+    setState(() {
+      _showAudioPreview = false;
+      _recordingPath = null;
+      _isPlaying = false;
+      _previewPosition = Duration.zero;
+      _previewDuration = Duration.zero;
+    });
+  }
+
+  String _formatDurationMs(Duration duration) {
+    final minutes = duration.inMinutes.toString().padLeft(2, '0');
+    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   void _selectMockAttachment(AttachmentType type) {
@@ -257,28 +311,27 @@ class _MessageInputState extends State<MessageInput> {
       _selectedAttachmentType = type;
       _selectedAttachmentPath = 'mock_path_for_${type.name}';
     });
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.surfaceLight,
-        content: Row(
+  }
+
+  Widget _buildMenuItem({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
           children: [
-            Icon(
-              type == AttachmentType.image
-                  ? Icons.image
-                  : type == AttachmentType.audio
-                      ? Icons.mic
-                      : Icons.description,
-              color: AppColors.primary,
-            ),
-            const SizedBox(width: 8),
+            Icon(icon, color: Colors.white70, size: 20),
+            const SizedBox(width: 12),
             Text(
-              type == AttachmentType.image
-                  ? 'Selected local textbook photo'
-                  : type == AttachmentType.audio
-                      ? 'Recorded local lecture voice note'
-                      : 'Selected textbook chapter PDF',
-              style: const TextStyle(color: Colors.white),
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
             ),
           ],
         ),
@@ -286,44 +339,8 @@ class _MessageInputState extends State<MessageInput> {
     );
   }
 
-  Widget _buildFloatingOption({
-    required IconData icon,
-    required Color color,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withAlpha(89),
-                blurRadius: 6,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 20,
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final showPlusButton = !_showSendButton && _selectedAttachmentType == AttachmentType.none && !_isRecording;
-
     return TapRegion(
       onTapOutside: (event) {
         if (_isMenuExpanded) {
@@ -341,7 +358,6 @@ class _MessageInputState extends State<MessageInput> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Preview attachment if selected
               if (_selectedAttachmentType != AttachmentType.none)
                 Container(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -356,19 +372,15 @@ class _MessageInputState extends State<MessageInput> {
                       Icon(
                         _selectedAttachmentType == AttachmentType.image
                             ? Icons.image_outlined
-                            : _selectedAttachmentType == AttachmentType.audio
-                                ? Icons.mic_none_outlined
-                                : Icons.description_outlined,
+                            : Icons.description_outlined,
                         color: AppColors.primary,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _selectedAttachmentType == AttachmentType.image
-                              ? 'Ready to upload textbook_notes.jpg'
-                              : _selectedAttachmentType == AttachmentType.audio
-                                  ? 'Ready to transcribe audio_lecture.wav'
-                                  : 'Ready to parse textbook_chapter.pdf',
+                              ? 'Attached image'
+                              : 'Attached file',
                           style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                         ),
                       ),
@@ -384,29 +396,29 @@ class _MessageInputState extends State<MessageInput> {
                     ],
                   ),
                 ),
-              // Use a Stack to absolute-position the floating vertical menu on the right
               Stack(
                 clipBehavior: Clip.none,
                 children: [
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // Input Pill
                       Expanded(
                         child: Container(
+                          constraints: const BoxConstraints(minHeight: 44),
                           decoration: BoxDecoration(
                             color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(24),
+                            borderRadius: BorderRadius.circular(22),
                             border: Border.all(color: Colors.white10),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                           child: Row(
                             children: _isRecording
                                 ? [
+                                    const SizedBox(width: 8),
                                     const _BlinkingDot(),
                                     const SizedBox(width: 8),
                                     Text(
-                                      _formatDuration(_recordingSeconds),
+                                      _formatRecordingTime(_recordingMs),
                                       style: const TextStyle(
                                         color: Colors.redAccent,
                                         fontSize: 14,
@@ -415,204 +427,215 @@ class _MessageInputState extends State<MessageInput> {
                                     ),
                                     const SizedBox(width: 16),
                                     const _AudioWaveforms(),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        _isLocked
-                                            ? ''
-                                            : '  Swipe up to lock 🔒',
+                                    const Expanded(child: SizedBox()),
+                                    TextButton(
+                                      onPressed: _cancelRecording,
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: const Text(
+                                        'Cancel',
                                         style: TextStyle(
-                                          color: Colors.white.withValues(alpha: 0.5),
-                                          fontSize: 12,
+                                          color: Color(0xFF2E87FF),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ),
-                                    if (_isLocked) ...[
-                                      IconButton(
-                                        icon: const Icon(Icons.delete_outline, color: Colors.white70, size: 20),
-                                        onPressed: _cancelRecording,
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      GestureDetector(
-                                        onTap: _stopRecording,
-                                        child: Container(
-                                          width: 32,
-                                          height: 32,
-                                          decoration: const BoxDecoration(
-                                            color: Colors.redAccent,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.stop_rounded,
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      icon: const Icon(Icons.stop_rounded, color: Colors.white70, size: 20),
+                                      onPressed: _stopRecordingAndShowPreview,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    GestureDetector(
+                                      onTap: _stopAndSendVoiceNote,
+                                      child: Container(
+                                        margin: const EdgeInsets.only(right: 4, bottom: 4, top: 4),
+                                        width: 34,
+                                        height: 34,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF2E87FF),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Center(
+                                          child: Icon(
+                                            Icons.send_rounded,
                                             color: Colors.white,
                                             size: 16,
                                           ),
                                         ),
                                       ),
-                                    ] else ...[
-                                      const Padding(
-                                        padding: EdgeInsets.only(right: 4.0),
-                                        child: Icon(
-                                          Icons.keyboard_double_arrow_up_rounded,
-                                          color: Colors.white38,
-                                          size: 18,
-                                        ),
-                                      ),
-                                    ],
-                                  ]
-                                : [
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _textController,
-                                        focusNode: _focusNode,
-                                        textCapitalization: TextCapitalization.sentences,
-                                        style: const TextStyle(color: Colors.white),
-                                        maxLines: null,
-                                        decoration: const InputDecoration(
-                                          hintText: 'Talk to inkq...',
-                                          hintStyle: TextStyle(color: AppColors.textMuted),
-                                          border: InputBorder.none,
-                                          contentPadding: EdgeInsets.symmetric(vertical: 10),
-                                        ),
-                                      ),
                                     ),
-                                    const SizedBox(width: 8),
-                                    // Send button with send icon inside circular container
-                                    if (_showSendButton || _selectedAttachmentType != AttachmentType.none)
-                                      GestureDetector(
-                                        onTap: _handleSend,
-                                        child: Container(
-                                          width: 32,
-                                          height: 32,
-                                          decoration: const BoxDecoration(
-                                            color: AppColors.primary,
-                                            shape: BoxShape.circle,
+                                  ]
+                                : _showAudioPreview
+                                    ? [
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
+                                          onPressed: _deletePreview,
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        GestureDetector(
+                                          onTap: _playPausePreview,
+                                          child: Icon(
+                                            _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                            color: Colors.white,
+                                            size: 26,
                                           ),
-                                          child: const Padding(
-                                            padding: EdgeInsets.only(left: 3.0),
-                                            child: Icon(
-                                              Icons.send_rounded,
-                                              color: Colors.white,
-                                              size: 16,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              ClipRRect(
+                                                borderRadius: BorderRadius.circular(2),
+                                                child: LinearProgressIndicator(
+                                                  value: _previewDuration.inMilliseconds > 0
+                                                      ? _previewPosition.inMilliseconds / _previewDuration.inMilliseconds
+                                                      : 0.0,
+                                                  backgroundColor: Colors.white12,
+                                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2E87FF)),
+                                                  minHeight: 4,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                '${_formatDurationMs(_previewPosition)} / ${_formatDurationMs(_previewDuration)}',
+                                                style: const TextStyle(
+                                                  color: AppColors.textMuted,
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        GestureDetector(
+                                          onTap: _sendVoiceNote,
+                                          child: Container(
+                                            margin: const EdgeInsets.only(right: 4, bottom: 4, top: 4),
+                                            width: 34,
+                                            height: 34,
+                                            decoration: const BoxDecoration(
+                                              color: Color(0xFF2E87FF),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Center(
+                                              child: Icon(
+                                                Icons.send_rounded,
+                                                color: Colors.white,
+                                                size: 16,
+                                              ),
                                             ),
                                           ),
                                         ),
-                                      )
-                                    else if (showPlusButton)
-                                      // Placeholder space inside text field for the floating plus and mic buttons
-                                      const SizedBox(
-                                        width: 72,
-                                        height: 28,
-                                      ),
-                                  ],
+                                      ]
+                                    : [
+                                        IconButton(
+                                          icon: const Icon(Icons.attach_file_rounded, color: Colors.white54, size: 22),
+                                          onPressed: () {
+                                            setState(() {
+                                              _isMenuExpanded = !_isMenuExpanded;
+                                            });
+                                          },
+                                        ),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _textController,
+                                            focusNode: _focusNode,
+                                            textCapitalization: TextCapitalization.sentences,
+                                            style: const TextStyle(color: Colors.white, fontSize: 15),
+                                            maxLines: null,
+                                            decoration: const InputDecoration(
+                                              hintText: 'Write a message...',
+                                              hintStyle: TextStyle(color: AppColors.textMuted),
+                                              border: InputBorder.none,
+                                              contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        if (_showSendButton || _selectedAttachmentType != AttachmentType.none)
+                                          GestureDetector(
+                                            onTap: _handleSend,
+                                            child: Container(
+                                              margin: const EdgeInsets.only(right: 4, bottom: 4, top: 4),
+                                              width: 34,
+                                              height: 34,
+                                              decoration: const BoxDecoration(
+                                                color: Color(0xFF2E87FF),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Center(
+                                                child: Icon(
+                                                  Icons.send_rounded,
+                                                  color: Colors.white,
+                                                  size: 16,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        else
+                                          IconButton(
+                                            icon: const Icon(Icons.mic_none_rounded, color: Colors.white54, size: 22),
+                                            onPressed: _startRecording,
+                                          ),
+                                      ],
                           ),
                         ),
                       ),
                     ],
                   ),
-                  // Floating Overlay (Plus button and vertical menu) on the right side
-                  if (showPlusButton)
+                  if (_isMenuExpanded)
                     Positioned(
-                      right: 12,
-                      bottom: 4,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // 1. Camera Option
-                          AnimatedOpacity(
-                            duration: const Duration(milliseconds: 150),
-                            opacity: _isMenuExpanded ? 1.0 : 0.0,
-                            child: AnimatedScale(
-                              duration: const Duration(milliseconds: 150),
-                              scale: _isMenuExpanded ? 1.0 : 0.0,
-                              child: SizedBox(
-                                height: _isMenuExpanded ? 40 : 0,
-                                child: _buildFloatingOption(
-                                  icon: Icons.camera_alt_outlined,
-                                  color: Colors.blueAccent,
-                                  tooltip: 'Camera',
-                                  onTap: () {
-                                    _selectMockAttachment(AttachmentType.image);
-                                    setState(() => _isMenuExpanded = false);
-                                  },
-                                ),
-                              ),
+                      left: 12,
+                      bottom: 52,
+                      child: Container(
+                        width: 180,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E2732),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
                             ),
-                          ),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            height: _isMenuExpanded ? 10 : 0,
-                          ),
-                          // 2. Document Option
-                          AnimatedOpacity(
-                            duration: const Duration(milliseconds: 180),
-                            opacity: _isMenuExpanded ? 1.0 : 0.0,
-                            child: AnimatedScale(
-                              duration: const Duration(milliseconds: 180),
-                              scale: _isMenuExpanded ? 1.0 : 0.0,
-                              child: SizedBox(
-                                height: _isMenuExpanded ? 40 : 0,
-                                child: _buildFloatingOption(
-                                  icon: Icons.description_outlined,
-                                  color: Colors.greenAccent,
-                                  tooltip: 'Document',
-                                  onTap: () {
-                                    _selectMockAttachment(AttachmentType.file);
-                                    setState(() => _isMenuExpanded = false);
-                                  },
-                                ),
-                              ),
+                          ],
+                          border: Border.all(color: Colors.white12, width: 0.5),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildMenuItem(
+                              icon: Icons.image_outlined,
+                              label: 'Photo or video',
+                              onTap: () {
+                                _selectMockAttachment(AttachmentType.image);
+                                setState(() => _isMenuExpanded = false);
+                              },
                             ),
-                          ),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            height: _isMenuExpanded ? 12 : 0,
-                          ),
-                          // Plus/Close trigger and Mic button side-by-side
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                                icon: AnimatedRotation(
-                                  duration: const Duration(milliseconds: 200),
-                                  turns: _isMenuExpanded ? 0.125 : 0.0,
-                                  child: Icon(
-                                    _isMenuExpanded ? Icons.add_circle : Icons.add_circle_outline_rounded,
-                                    color: _isMenuExpanded ? AppColors.primary : Colors.white70,
-                                    size: 28,
-                                  ),
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _isMenuExpanded = !_isMenuExpanded;
-                                  });
-                                },
-                              ),
-                              const SizedBox(width: 12),
-                              GestureDetector(
-                                onLongPressStart: (_) => _handleLongPressStart(),
-                                onLongPressMoveUpdate: (details) => _handleLongPressMoveUpdate(details),
-                                onLongPressEnd: (_) => _handleLongPressEnd(),
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.transparent,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.mic_none_rounded,
-                                    color: Colors.white70,
-                                    size: 28,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                            const Divider(color: Colors.white12, height: 1),
+                            _buildMenuItem(
+                              icon: Icons.description_outlined,
+                              label: 'Document',
+                              onTap: () {
+                                _selectMockAttachment(AttachmentType.file);
+                                setState(() => _isMenuExpanded = false);
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                 ],

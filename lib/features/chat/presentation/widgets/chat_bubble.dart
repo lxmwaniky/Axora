@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/entities/chat_message.dart';
 
@@ -28,6 +31,16 @@ class ChatBubble extends StatelessWidget {
           children: [
             if (isJson)
               _buildInteractiveStudyCards(context, message.text)
+            else if (message.attachmentType == AttachmentType.audio && isUser)
+              Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                ),
+                child: AudioBubblePlayer(
+                  attachmentPath: message.attachmentPath,
+                  isUser: isUser,
+                ),
+              )
             else
               Container(
                 constraints: BoxConstraints(
@@ -49,7 +62,7 @@ class ChatBubble extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (message.hasAttachment) ...[
-                      _buildAttachmentWidget(context),
+                      _buildAttachmentWidget(context, isUser),
                       const SizedBox(height: 8),
                     ],
                     if (isUser)
@@ -112,7 +125,7 @@ class ChatBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildAttachmentWidget(BuildContext context) {
+  Widget _buildAttachmentWidget(BuildContext context, bool isUser) {
     if (message.attachmentType == AttachmentType.image) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -167,54 +180,9 @@ class ChatBubble extends StatelessWidget {
         ),
       );
     } else if (message.attachmentType == AttachmentType.audio) {
-      return Container(
-        padding: const EdgeInsets.all(8.0),
-        decoration: BoxDecoration(
-          color: Colors.black26,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            const CircleAvatar(
-              radius: 16,
-              backgroundColor: AppColors.primary,
-              child: Icon(Icons.play_arrow, color: Colors.white, size: 16),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Voice Note Transcription',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  // Mock Audio Waveform
-                  Row(
-                    children: List.generate(
-                      15,
-                      (index) => Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 1),
-                          height: (index % 3 + 2) * 3.0,
-                          decoration: BoxDecoration(
-                            color: Colors.white54,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+      return AudioBubblePlayer(
+        attachmentPath: message.attachmentPath,
+        isUser: isUser,
       );
     } else if (message.attachmentType == AttachmentType.file) {
       return Container(
@@ -519,6 +487,233 @@ class _QuizWidgetState extends State<_QuizWidget> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class AudioBubblePlayer extends StatefulWidget {
+  final String? attachmentPath;
+  final bool isUser;
+
+  const AudioBubblePlayer({
+    super.key,
+    required this.attachmentPath,
+    required this.isUser,
+  });
+
+  @override
+  State<AudioBubblePlayer> createState() => _AudioBubblePlayerState();
+}
+
+class _AudioBubblePlayerState extends State<AudioBubblePlayer> {
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlaying = false;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  StreamSubscription? _positionSub;
+  StreamSubscription? _durationSub;
+  StreamSubscription? _stateSub;
+  StreamSubscription? _completeSub;
+  bool _fileExists = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFile();
+    _positionSub = _audioPlayer.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _position = p);
+    });
+    _durationSub = _audioPlayer.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    });
+    _stateSub = _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (mounted) setState(() => _isPlaying = state == PlayerState.playing);
+    });
+    _completeSub = _audioPlayer.onPlayerComplete.listen((event) {
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _position = Duration.zero;
+        });
+      }
+    });
+  }
+
+  Future<void> _checkFile() async {
+    if (widget.attachmentPath != null) {
+      final file = File(widget.attachmentPath!);
+      final exists = await file.exists();
+      if (mounted) {
+        setState(() {
+          _fileExists = exists;
+        });
+      }
+      if (exists) {
+        try {
+          // Preload source to retrieve duration
+          await _audioPlayer.setSource(DeviceFileSource(widget.attachmentPath!));
+        } catch (e) {
+          debugPrint('Error setting source: $e');
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _stateSub?.cancel();
+    _completeSub?.cancel();
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _playPause() async {
+    if (!_fileExists || widget.attachmentPath == null) return;
+
+    try {
+      if (_isPlaying) {
+        await _audioPlayer.pause();
+      } else {
+        await _audioPlayer.play(DeviceFileSource(widget.attachmentPath!));
+      }
+    } catch (e) {
+      debugPrint('Error playing audio: $e');
+    }
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.toString();
+    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_fileExists) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black12,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade300, size: 16),
+            const SizedBox(width: 8),
+            const Text(
+              'Audio file unavailable',
+              style: TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final totalSeconds = _duration.inSeconds;
+    final currentSeconds = _position.inSeconds;
+    final progress = totalSeconds > 0 ? currentSeconds / totalSeconds : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: widget.isUser ? const Color(0xFF1E2732) : Colors.black26,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: widget.isUser ? Colors.white.withValues(alpha: 0.08) : Colors.white10,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: _playPause,
+            child: CircleAvatar(
+              radius: 14,
+              backgroundColor: AppColors.primary,
+              child: Icon(
+                _isPlaying ? Icons.pause : Icons.play_arrow,
+                color: Colors.white,
+                size: 14,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (details) {
+              if (_duration.inMilliseconds > 0) {
+                final pct = (details.localPosition.dx / 140.0).clamp(0.0, 1.0);
+                final seekToMs = (pct * _duration.inMilliseconds).round();
+                _audioPlayer.seek(Duration(milliseconds: seekToMs));
+              }
+            },
+            onHorizontalDragUpdate: (details) {
+              if (_duration.inMilliseconds > 0) {
+                final pct = (details.localPosition.dx / 140.0).clamp(0.0, 1.0);
+                final seekToMs = (pct * _duration.inMilliseconds).round();
+                _audioPlayer.seek(Duration(milliseconds: seekToMs));
+              }
+            },
+            child: _AudioWaveformProgress(
+              progress: progress,
+              isUser: widget.isUser,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _formatDuration(_position.inSeconds > 0 ? _position : _duration),
+            style: TextStyle(
+              color: widget.isUser ? Colors.white70 : Colors.white54,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AudioWaveformProgress extends StatelessWidget {
+  final double progress;
+  final bool isUser;
+
+  const _AudioWaveformProgress({
+    required this.progress,
+    required this.isUser,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Predefined heights for the vertical bars to render a neat waveform
+    final List<double> heights = [
+      4, 6, 8, 10, 6, 8, 12, 16, 14, 10, 8, 12, 18, 14, 10, 6, 8, 14, 16, 12, 8, 6, 8, 12, 16, 14, 10, 8, 6, 10, 12, 10, 8, 6, 4
+    ];
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: List.generate(heights.length, (index) {
+        final barProgress = index / heights.length;
+        final isActive = progress >= barProgress;
+        final Color color = isActive
+            ? const Color(0xFF2E87FF)
+            : (isUser ? Colors.white.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.12));
+
+        return Container(
+          width: 2,
+          height: heights[index],
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(1),
+          ),
+        );
+      }),
     );
   }
 }

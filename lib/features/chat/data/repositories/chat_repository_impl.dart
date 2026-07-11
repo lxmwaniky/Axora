@@ -196,8 +196,11 @@ class ChatRepositoryImpl implements ChatRepository {
       } else {
         bytes = _getFallbackImageBytes();
       }
+      final promptText = userMessage.text.trim().isEmpty
+          ? "Please explain and analyze this image."
+          : userMessage.text;
       return Message.withImage(
-        text: userMessage.text,
+        text: promptText,
         imageBytes: bytes,
         isUser: true,
       );
@@ -214,8 +217,11 @@ class ChatRepositoryImpl implements ChatRepository {
       } else {
         bytes = _getFallbackAudioBytes();
       }
+      final promptText = userMessage.text.trim().isEmpty
+          ? "Listen to the voice note and respond directly to the query or instruction spoken in it."
+          : userMessage.text;
       return Message.withAudio(
-        text: userMessage.text,
+        text: promptText,
         audioBytes: bytes,
         isUser: true,
       );
