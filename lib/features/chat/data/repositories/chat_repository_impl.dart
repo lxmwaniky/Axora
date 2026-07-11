@@ -17,11 +17,7 @@ class ChatRepositoryImpl implements ChatRepository {
   bool _engineReady = false;   // true once the model weights are loaded
   bool _chatReady  = false;    // true once _chat is open and usable
 
-  static const String _mainSystemInstruction =
-      'You are inkq, a concise study assistant. '
-      'Keep all responses to 3–6 sentences maximum. '
-      'Use Markdown: **bold** for key terms, ## for section headers when helpful, '
-      '- for bullet lists. Never write long walls of text.';
+
 
   ChatRepositoryImpl() {
     _history.add(
@@ -69,7 +65,7 @@ class ChatRepositoryImpl implements ChatRepository {
 
     if (!_chatReady) {
       _chat = await _model!.createChat(
-        systemInstruction: _mainSystemInstruction,
+        systemInstruction: AppConfig.defaultSystemInstruction,
         modelType: ModelType.gemma4,
       );
       _chatReady = true;
@@ -119,7 +115,7 @@ class ChatRepositoryImpl implements ChatRepository {
           await _chat!.close();
         }
         _chat = await _model!.createChat(
-          systemInstruction: _mainSystemInstruction,
+          systemInstruction: AppConfig.defaultSystemInstruction,
           modelType: ModelType.gemma4,
         );
         _chatReady = true;
