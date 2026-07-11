@@ -38,7 +38,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_scrollController.hasClients) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
+          0.0,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
         );
@@ -80,17 +80,21 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
                 }
 
+                final showTyping = widget.notifier.isWriting;
+                final itemCount = widget.notifier.messages.length + (showTyping ? 1 : 0);
+
                 return ListView.builder(
                   controller: _scrollController,
-                  itemCount: widget.notifier.messages.length + (widget.notifier.isWriting ? 1 : 0),
+                  reverse: true,
+                  itemCount: itemCount,
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   itemBuilder: (context, index) {
-                    // Render typing indicator if at the end and isWriting
-                    if (index == widget.notifier.messages.length) {
+                    if (showTyping && index == 0) {
                       return _buildTypingIndicator();
                     }
 
-                    final message = widget.notifier.messages[index];
+                    final messageIndex = widget.notifier.messages.length - 1 - (index - (showTyping ? 1 : 0));
+                    final message = widget.notifier.messages[messageIndex];
                     return ChatBubble(message: message);
                   },
                 );

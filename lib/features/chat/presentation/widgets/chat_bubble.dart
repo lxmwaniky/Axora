@@ -216,6 +216,49 @@ class ChatBubble extends StatelessWidget {
           ],
         ),
       );
+    } else if (message.attachmentType == AttachmentType.file) {
+      return Container(
+        padding: const EdgeInsets.all(8.0),
+        decoration: BoxDecoration(
+          color: Colors.black26,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              radius: 16,
+              backgroundColor: Colors.greenAccent,
+              child: Icon(Icons.description, color: Colors.black87, size: 16),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Study Document',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    message.attachmentPath != null
+                        ? message.attachmentPath!.split('_').last
+                        : 'textbook_chapter.pdf',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
     }
     return const SizedBox.shrink();
   }

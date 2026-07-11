@@ -8,6 +8,7 @@ enum AttachmentType {
   none,
   image,
   audio,
+  file,
 }
 
 class ChatMessage {

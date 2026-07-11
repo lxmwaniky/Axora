@@ -89,14 +89,6 @@ class ChatHeader extends StatelessWidget implements PreferredSizeWidget {
         ],
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.phone_outlined, color: Colors.white),
-          onPressed: () {},
-        ),
-        IconButton(
-          icon: const Icon(Icons.videocam_outlined, color: Colors.white),
-          onPressed: () {},
-        ),
         PopupMenuButton<String>(
           icon: const Icon(Icons.info_outline, color: Colors.white),
           color: AppColors.surface,

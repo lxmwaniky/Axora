@@ -204,17 +204,15 @@ class HubScreen extends StatelessWidget {
                         : session.createdAt;
                     final timeStr = _getRelativeTime(lastActivity);
 
+                    final gradientIndex = session.id.hashCode.abs() % AppColors.avatarGradients.length;
+                    final sessionGradient = AppColors.avatarGradients[gradientIndex];
+
                     return _buildChatListItem(
                       context,
                       title: session.title,
                       subtitle: lastMessage,
                       time: timeStr,
-                      icon: Icons.psychology_outlined,
-                      gradient: isCurrentActive 
-                          ? AppColors.primaryGradient 
-                          : const LinearGradient(
-                              colors: [Colors.white24, Colors.white10],
-                            ),
+                      gradient: sessionGradient,
                       isActive: isCurrentActive,
                       isPinned: session.isPinned,
                       onTap: () {
@@ -312,7 +310,6 @@ class HubScreen extends StatelessWidget {
     required String title,
     required String subtitle,
     required String time,
-    required IconData icon,
     required Gradient gradient,
     required bool isActive,
     required bool isPinned,
@@ -336,10 +333,14 @@ class HubScreen extends StatelessWidget {
                     gradient: gradient,
                   ),
                   child: Center(
-                    child: Icon(
-                      icon,
-                      color: Colors.white,
-                      size: 24,
+                    child: Text(
+                      title.trim().isNotEmpty ? title.trim()[0].toUpperCase() : 'N',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20,
+                        fontFamily: 'Outfit',
+                      ),
                     ),
                   ),
                 ),
