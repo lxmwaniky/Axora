@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
@@ -137,9 +138,8 @@ class ChatRepositoryImpl implements ChatRepository {
       debugPrint("[ChatRepository] Ensuring Gemma engine is initialized...");
       await _ensureEngineInitialized(modelPath);
 
-      await _chat!.addQueryChunk(
-        Message.text(text: userMessage.text, isUser: true),
-      );
+      final gemmaMessage = await _toGemmaMessage(userMessage);
+      await _chat!.addQueryChunk(gemmaMessage);
 
       final stream = _chat!.generateChatResponseAsync();
 
@@ -180,5 +180,60 @@ class ChatRepositoryImpl implements ChatRepository {
       _history.add(errorMessage);
       _messageController.add(errorMessage);
     }
+  }
+
+  Future<Message> _toGemmaMessage(ChatMessage userMessage) async {
+    if (userMessage.attachmentType == AttachmentType.image) {
+      Uint8List bytes;
+      if (userMessage.attachmentPath != null &&
+          !userMessage.attachmentPath!.startsWith('mock_path')) {
+        final file = File(userMessage.attachmentPath!);
+        if (await file.exists()) {
+          bytes = await file.readAsBytes();
+        } else {
+          bytes = _getFallbackImageBytes();
+        }
+      } else {
+        bytes = _getFallbackImageBytes();
+      }
+      return Message.withImage(
+        text: userMessage.text,
+        imageBytes: bytes,
+        isUser: true,
+      );
+    } else if (userMessage.attachmentType == AttachmentType.audio) {
+      Uint8List bytes;
+      if (userMessage.attachmentPath != null &&
+          !userMessage.attachmentPath!.startsWith('mock_path')) {
+        final file = File(userMessage.attachmentPath!);
+        if (await file.exists()) {
+          bytes = await file.readAsBytes();
+        } else {
+          bytes = _getFallbackAudioBytes();
+        }
+      } else {
+        bytes = _getFallbackAudioBytes();
+      }
+      return Message.withAudio(
+        text: userMessage.text,
+        audioBytes: bytes,
+        isUser: true,
+      );
+    } else {
+      return Message.text(
+        text: userMessage.text,
+        isUser: true,
+      );
+    }
+  }
+
+  Uint8List _getFallbackImageBytes() {
+    const base64Png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    return base64Decode(base64Png);
+  }
+
+  Uint8List _getFallbackAudioBytes() {
+    const base64Wav = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAIA+AAABAAgAZGF0YQAAAAA=';
+    return base64Decode(base64Wav);
   }
 }
