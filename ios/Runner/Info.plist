@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Inkq</string>
+	<string>Axora</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>inkq</string>
+	<string>axora</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -77,6 +77,6 @@
 		<string>processing</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>This app requires microphone access to record voice notes for inkq study assistant.</string>
+	<string>This app requires microphone access to record voice notes for Axora study assistant.</string>
 </dict>
 </plist>

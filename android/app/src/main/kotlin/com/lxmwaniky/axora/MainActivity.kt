@@ -1,4 +1,4 @@
-package com.lxmwaniky.inkq
+package com.lxmwaniky.axora
 
 import android.os.StatFs
 import io.flutter.embedding.android.FlutterActivity
@@ -6,7 +6,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val DISK_CHANNEL = "com.lxmwaniky.inkq/disk_space"
+    private val DISK_CHANNEL = "com.lxmwaniky.axora/disk_space"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

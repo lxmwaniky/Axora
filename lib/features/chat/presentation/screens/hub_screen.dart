@@ -130,7 +130,7 @@ class HubScreen extends StatelessWidget {
         backgroundColor: AppColors.background,
         elevation: 0,
         title: const Text(
-          'inkq',
+          'Axora',
           style: TextStyle(
             fontFamily: 'Outfit',
             fontSize: 24,

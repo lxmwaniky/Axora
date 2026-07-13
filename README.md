@@ -1,3 +1,3 @@
-# inkq
+# Axora
 
 A new Flutter project.

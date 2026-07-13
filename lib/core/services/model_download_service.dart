@@ -71,7 +71,7 @@ class ModelDownloadService {
     _port.close();
   }
 
-  static const MethodChannel _diskChannel = MethodChannel('com.lxmwaniky.inkq/disk_space');
+  static const MethodChannel _diskChannel = MethodChannel('com.lxmwaniky.axora/disk_space');
 
   Future<int> getFreeDiskSpace() async {
     try {

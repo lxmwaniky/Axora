@@ -8,7 +8,7 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
-    let diskChannel = FlutterMethodChannel(name: "com.lxmwaniky.inkq/disk_space",
+    let diskChannel = FlutterMethodChannel(name: "com.lxmwaniky.axora/disk_space",
                                               binaryMessenger: controller.binaryMessenger)
     diskChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in

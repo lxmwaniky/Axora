@@ -25,7 +25,7 @@ class ChatRepositoryImpl implements ChatRepository {
       ChatMessage(
         id: 'welcome_msg',
         text:
-            "Hey! I'm inkq, your offline Gemma 4 study assistant. Ask me any question directly in Airplane Mode! 📝🎧",
+            "Hey! I'm Axora, your offline Gemma 4 study assistant. Ask me any question directly in Airplane Mode! 📝🎧",
         sender: MessageSender.assistant,
         timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
       ),
