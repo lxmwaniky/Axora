@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - '.metadata'
+      - '.idea/**'
     tags:
       - 'v*'
   workflow_dispatch:
