@@ -10,7 +10,7 @@ on:
       - '.metadata'
       - '.idea/**'
     tags:
-      - 'v*'
+      - '*'
   workflow_dispatch:
 
 permissions:
