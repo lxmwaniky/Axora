@@ -67,7 +67,9 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                 children: [
                   Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
                   SizedBox(width: 8),
-                  Text('Storage Space Warning', style: TextStyle(color: Colors.white)),
+                  Expanded(
+                    child: Text('Storage Space Warning', style: TextStyle(color: Colors.white)),
+                  ),
                 ],
               ),
               content: Text(
@@ -98,7 +100,9 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
             children: [
               Icon(Icons.network_check, color: AppColors.primary, size: 28),
               SizedBox(width: 8),
-              Text('Network Warning', style: TextStyle(color: Colors.white)),
+              Expanded(
+                child: Text('Network Warning', style: TextStyle(color: Colors.white)),
+              ),
             ],
           ),
           content: const Text(
@@ -192,7 +196,11 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                               Text(
                                 state == DownloadState.completed
                                     ? 'Completed'
-                                    : 'Downloading...',
+                                    : state == DownloadState.failed
+                                        ? 'Failed'
+                                        : state == DownloadState.paused
+                                            ? 'Paused'
+                                            : 'Downloading...',
                                 style: const TextStyle(
                                   color: AppColors.textSecondary,
                                   fontWeight: FontWeight.w600,
@@ -214,9 +222,21 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                             isDownloading: state == DownloadState.downloading,
                           ),
                           const SizedBox(height: 6),
-                          const Text(
-                            'You can close the app. Progress is shown in the notification bar.',
-                            style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+                          ValueListenableBuilder<String?>(
+                            valueListenable: widget.downloadService.errorNotifier,
+                            builder: (context, error, child) {
+                              if (error == null || state != DownloadState.failed) {
+                                return const Text(
+                                  'You can close the app. Progress is shown in the notification bar.',
+                                  style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+                                );
+                              }
+                              return Text(
+                                error,
+                                style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                                textAlign: TextAlign.center,
+                              );
+                            },
                           ),
                           const SizedBox(height: 24),
                         ],
@@ -230,13 +250,10 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
               ValueListenableBuilder<DownloadState>(
                 valueListenable: widget.downloadService.stateNotifier,
                 builder: (context, state, child) {
-                  final isDownloading = state == DownloadState.downloading;
-                  final isFailed = state == DownloadState.failed;
-
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      if (state == DownloadState.notStarted || isFailed)
+                      if (state == DownloadState.notStarted)
                         ElevatedButton(
                           onPressed: () => _checkAndDownload(context),
                           style: ElevatedButton.styleFrom(
@@ -252,19 +269,113 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                         )
-                      else if (isDownloading)
-                        ElevatedButton.icon(
-                          onPressed: widget.downloadService.cancelDownload,
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          label: const Text('Cancel Download'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.withAlpha(204),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                      else if (state == DownloadState.failed)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: () => _checkAndDownload(context),
+                              icon: const Icon(Icons.refresh, color: Colors.black),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              label: const Text(
+                                'Retry Download',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: widget.downloadService.cancelDownload,
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.redAccent,
+                                side: const BorderSide(color: Colors.redAccent),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              label: const Text('Cancel & Clear Partial Files'),
+                            ),
+                          ],
+                        )
+                      else if (state == DownloadState.paused)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: widget.downloadService.resumeDownload,
+                              icon: const Icon(Icons.play_arrow, color: Colors.black),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              label: const Text(
+                                'Resume Download',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: widget.downloadService.cancelDownload,
+                              icon: const Icon(Icons.close, color: Colors.redAccent),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.redAccent,
+                                side: const BorderSide(color: Colors.redAccent),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              label: const Text('Cancel & Reset'),
+                            ),
+                          ],
+                        )
+                      else if (state == DownloadState.downloading)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: widget.downloadService.pauseDownload,
+                                icon: const Icon(Icons.pause, color: Colors.white),
+                                label: const Text('Pause'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.surfaceLight,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: widget.downloadService.cancelDownload,
+                                icon: const Icon(Icons.close, color: Colors.white),
+                                label: const Text('Cancel'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.withAlpha(204),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                     ],
                   );

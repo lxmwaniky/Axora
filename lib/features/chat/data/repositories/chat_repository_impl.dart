@@ -122,6 +122,8 @@ class ChatRepositoryImpl implements ChatRepository {
         _chat = await _model!.createChat(
           systemInstruction: AppConfig.defaultSystemInstruction,
           modelType: ModelType.gemma4,
+          supportImage: true,
+          supportAudio: true,
         );
         _chatReady = true;
       }
@@ -194,6 +196,11 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   Future<Message> _toGemmaMessage(ChatMessage userMessage) async {
+    debugPrint("[AudioDebug] Processing message ID: ${userMessage.id}");
+    debugPrint("[AudioDebug] Attachment Type: ${userMessage.attachmentType}");
+    debugPrint("[AudioDebug] Attachment Path: ${userMessage.attachmentPath}");
+    debugPrint("[AudioDebug] Text Content: '${userMessage.text}'");
+
     if (userMessage.attachmentType == AttachmentType.image) {
       Uint8List bytes;
       if (userMessage.attachmentPath != null &&
@@ -201,15 +208,19 @@ class ChatRepositoryImpl implements ChatRepository {
         final file = File(userMessage.attachmentPath!);
         if (await file.exists()) {
           bytes = await file.readAsBytes();
+          debugPrint("[AudioDebug] Loaded image bytes from file: ${bytes.length} bytes");
         } else {
+          debugPrint("[AudioDebug] Image file does not exist, using fallback bytes");
           bytes = _getFallbackImageBytes();
         }
       } else {
+        debugPrint("[AudioDebug] Image path is null or mock, using fallback bytes");
         bytes = _getFallbackImageBytes();
       }
       final promptText = userMessage.text.trim().isEmpty
           ? "Please explain and analyze this image."
           : userMessage.text;
+      debugPrint("[AudioDebug] Final image prompt sent to Gemma: '$promptText'");
       return Message.withImage(
         text: promptText,
         imageBytes: bytes,
@@ -217,26 +228,34 @@ class ChatRepositoryImpl implements ChatRepository {
       );
     } else if (userMessage.attachmentType == AttachmentType.audio) {
       Uint8List bytes;
+      bool usedFallback = false;
       if (userMessage.attachmentPath != null &&
           !userMessage.attachmentPath!.startsWith('mock_path')) {
         final file = File(userMessage.attachmentPath!);
         if (await file.exists()) {
           bytes = await file.readAsBytes();
+          debugPrint("[AudioDebug] Loaded audio bytes from file: ${bytes.length} bytes");
         } else {
+          debugPrint("[AudioDebug] Audio file does not exist at '${userMessage.attachmentPath}', using fallback bytes");
           bytes = _getFallbackAudioBytes();
+          usedFallback = true;
         }
       } else {
+        debugPrint("[AudioDebug] Audio path is null or mock, using fallback bytes");
         bytes = _getFallbackAudioBytes();
+        usedFallback = true;
       }
       final promptText = userMessage.text.trim().isEmpty
           ? "Listen to the voice note and respond directly to the query or instruction spoken in it."
           : userMessage.text;
+      debugPrint("[AudioDebug] Final audio prompt sent to Gemma: '$promptText' (using fallback: $usedFallback)");
       return Message.withAudio(
         text: promptText,
         audioBytes: bytes,
         isUser: true,
       );
     } else {
+      debugPrint("[AudioDebug] Plain text message sent to Gemma: '${userMessage.text}'");
       return Message.text(
         text: userMessage.text,
         isUser: true,

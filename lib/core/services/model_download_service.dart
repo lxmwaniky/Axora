@@ -125,6 +125,40 @@ class ModelDownloadService {
       return;
     }
 
+    // If state is failed and we have an existing taskId, retry instead of starting from scratch
+    if (stateNotifier.value == DownloadState.failed && _taskId != null) {
+      debugPrint("[ModelDownloadService] Retrying failed task: $_taskId");
+      stateNotifier.value = DownloadState.downloading;
+      errorNotifier.value = null;
+      try {
+        final newTaskId = await FlutterDownloader.retry(taskId: _taskId!);
+        if (newTaskId != null) {
+          _taskId = newTaskId;
+          debugPrint("[ModelDownloadService] Retry successful. New task ID: $_taskId");
+          return;
+        }
+      } catch (e) {
+        debugPrint("[ModelDownloadService] Error retrying task: $e");
+      }
+    }
+
+    // If state is paused and we have an existing taskId, resume instead of starting from scratch
+    if (stateNotifier.value == DownloadState.paused && _taskId != null) {
+      debugPrint("[ModelDownloadService] Resuming paused task: $_taskId");
+      stateNotifier.value = DownloadState.downloading;
+      errorNotifier.value = null;
+      try {
+        final newTaskId = await FlutterDownloader.resume(taskId: _taskId!);
+        if (newTaskId != null) {
+          _taskId = newTaskId;
+          debugPrint("[ModelDownloadService] Resume successful. New task ID: $_taskId");
+          return;
+        }
+      } catch (e) {
+        debugPrint("[ModelDownloadService] Error resuming task: $e");
+      }
+    }
+
     // HuggingFace direct download link
     const downloadUrl = 'https://huggingface.co/${AppConfig.hfModelRepo}/resolve/main/${AppConfig.modelFilename}';
 
@@ -175,6 +209,34 @@ class ModelDownloadService {
       debugPrint("[ModelDownloadService] Failed to enqueue download task.");
       stateNotifier.value = DownloadState.failed;
       errorNotifier.value = "Failed to queue download task.";
+    }
+  }
+
+  Future<void> pauseDownload() async {
+    if (_taskId != null) {
+      try {
+        debugPrint("[ModelDownloadService] Pausing task: $_taskId");
+        await FlutterDownloader.pause(taskId: _taskId!);
+        stateNotifier.value = DownloadState.paused;
+      } catch (e) {
+        debugPrint("[ModelDownloadService] Error pausing download: $e");
+      }
+    }
+  }
+
+  Future<void> resumeDownload() async {
+    if (_taskId != null) {
+      try {
+        debugPrint("[ModelDownloadService] Resuming task: $_taskId");
+        final newTaskId = await FlutterDownloader.resume(taskId: _taskId!);
+        if (newTaskId != null) {
+          _taskId = newTaskId;
+          stateNotifier.value = DownloadState.downloading;
+          errorNotifier.value = null;
+        }
+      } catch (e) {
+        debugPrint("[ModelDownloadService] Error resuming download: $e");
+      }
     }
   }
 
