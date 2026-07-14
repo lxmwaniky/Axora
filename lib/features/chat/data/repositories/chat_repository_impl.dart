@@ -217,9 +217,10 @@ class ChatRepositoryImpl implements ChatRepository {
         debugPrint("[AudioDebug] Image path is null or mock, using fallback bytes");
         bytes = _getFallbackImageBytes();
       }
-      final promptText = userMessage.text.trim().isEmpty
+      final String basePrompt = userMessage.text.trim().isEmpty
           ? "Please explain and analyze this image."
           : userMessage.text;
+      final promptText = "<|image><image|>\n$basePrompt";
       debugPrint("[AudioDebug] Final image prompt sent to Gemma: '$promptText'");
       return Message.withImage(
         text: promptText,
@@ -245,9 +246,10 @@ class ChatRepositoryImpl implements ChatRepository {
         bytes = _getFallbackAudioBytes();
         usedFallback = true;
       }
-      final promptText = userMessage.text.trim().isEmpty
+      final String basePrompt = userMessage.text.trim().isEmpty
           ? "Listen to the voice note and respond directly to the query or instruction spoken in it."
           : userMessage.text;
+      final promptText = "<|audio><audio|>\n$basePrompt";
       debugPrint("[AudioDebug] Final audio prompt sent to Gemma: '$promptText' (using fallback: $usedFallback)");
       return Message.withAudio(
         text: promptText,
