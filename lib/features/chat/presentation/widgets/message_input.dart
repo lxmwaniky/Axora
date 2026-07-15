@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/entities/chat_message.dart';
 
@@ -26,9 +27,11 @@ class _MessageInputState extends State<MessageInput> {
   bool _showSendButton = false;
   bool _isMenuExpanded = false;
 
-  // Selected mock attachment state
+  // Selected attachment state
   String? _selectedAttachmentPath;
   AttachmentType _selectedAttachmentType = AttachmentType.none;
+  final ImagePicker _picker = ImagePicker();
+  bool _isPickingImage = false;
 
   // Audio Recording State
   final AudioRecorder _audioRecorder = AudioRecorder();
@@ -306,11 +309,36 @@ class _MessageInputState extends State<MessageInput> {
     return '$minutes:$seconds';
   }
 
-  void _selectMockAttachment(AttachmentType type) {
-    setState(() {
-      _selectedAttachmentType = type;
-      _selectedAttachmentPath = 'mock_path_for_${type.name}';
-    });
+  Future<void> _pickImage(ImageSource source) async {
+    if (_isPickingImage) return;
+    _isPickingImage = true;
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (image != null) {
+        setState(() {
+          _selectedAttachmentPath = image.path;
+          _selectedAttachmentType = AttachmentType.image;
+          _isMenuExpanded = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.surfaceLight,
+            content: Text('Failed to pick image: $e'),
+          ),
+        );
+      }
+    } finally {
+      _isPickingImage = false;
+    }
   }
 
   Widget _buildMenuItem({
@@ -358,10 +386,10 @@ class _MessageInputState extends State<MessageInput> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (_selectedAttachmentType != AttachmentType.none)
+              if (_selectedAttachmentType == AttachmentType.image && _selectedAttachmentPath != null)
                 Container(
                   margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: AppColors.surface,
                     borderRadius: BorderRadius.circular(12),
@@ -369,23 +397,58 @@ class _MessageInputState extends State<MessageInput> {
                   ),
                   child: Row(
                     children: [
-                      Icon(
-                        _selectedAttachmentType == AttachmentType.image
-                            ? Icons.image_outlined
-                            : Icons.description_outlined,
-                        color: AppColors.primary,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: _selectedAttachmentPath!.startsWith('mock_path')
+                            ? Container(
+                                width: 48,
+                                height: 48,
+                                color: Colors.white12,
+                                child: const Icon(Icons.image_outlined, color: Colors.white38),
+                              )
+                            : Image.file(
+                                File(_selectedAttachmentPath!),
+                                width: 48,
+                                height: 48,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    width: 48,
+                                    height: 48,
+                                    color: Colors.white12,
+                                    child: const Icon(Icons.image_outlined, color: Colors.white38),
+                                  );
+                                },
+                              ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: Text(
-                          _selectedAttachmentType == AttachmentType.image
-                              ? 'Attached image'
-                              : 'Attached file',
-                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Image selected',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _selectedAttachmentPath!.split('/').last,
+                              style: const TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 11,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red, size: 16),
+                        icon: const Icon(Icons.close, color: Colors.redAccent, size: 20),
                         onPressed: () {
                           setState(() {
                             _selectedAttachmentPath = null;
@@ -394,6 +457,43 @@ class _MessageInputState extends State<MessageInput> {
                         },
                       ),
                     ],
+                  ),
+                ),
+              if (_isMenuExpanded)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    width: 200,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E2732),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.4),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                      border: Border.all(color: Colors.white12, width: 0.5),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildMenuItem(
+                          icon: Icons.camera_alt_outlined,
+                          label: 'Take Photo',
+                          onTap: () => _pickImage(ImageSource.camera),
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        _buildMenuItem(
+                          icon: Icons.photo_library_outlined,
+                          label: 'Choose from Gallery',
+                          onTap: () => _pickImage(ImageSource.gallery),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               Stack(
@@ -541,7 +641,7 @@ class _MessageInputState extends State<MessageInput> {
                                       ]
                                     : [
                                         IconButton(
-                                          icon: const Icon(Icons.attach_file_rounded, color: Colors.white54, size: 22),
+                                          icon: const Icon(Icons.image_outlined, color: Colors.white54, size: 22),
                                           onPressed: () {
                                             setState(() {
                                               _isMenuExpanded = !_isMenuExpanded;
@@ -595,49 +695,6 @@ class _MessageInputState extends State<MessageInput> {
                       ),
                     ],
                   ),
-                  if (_isMenuExpanded)
-                    Positioned(
-                      left: 12,
-                      bottom: 52,
-                      child: Container(
-                        width: 180,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E2732),
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.4),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                          border: Border.all(color: Colors.white12, width: 0.5),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildMenuItem(
-                              icon: Icons.image_outlined,
-                              label: 'Photo or video',
-                              onTap: () {
-                                _selectMockAttachment(AttachmentType.image);
-                                setState(() => _isMenuExpanded = false);
-                              },
-                            ),
-                            const Divider(color: Colors.white12, height: 1),
-                            _buildMenuItem(
-                              icon: Icons.description_outlined,
-                              label: 'Document',
-                              onTap: () {
-                                _selectMockAttachment(AttachmentType.file);
-                                setState(() => _isMenuExpanded = false);
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ],

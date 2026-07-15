@@ -45,9 +45,13 @@ class ChatNotifier extends ChangeNotifier {
   Future<void> _saveSessionsToDisk() async {
     try {
       final file = await _getStorageFile();
-      final jsonList = _sessions.map((s) => s.toJson()).toList();
+      // Filter out empty sessions so they never persist to disk.
+      final jsonList = _sessions
+          .where((s) => s.messages.isNotEmpty)
+          .map((s) => s.toJson())
+          .toList();
       await file.writeAsString(jsonEncode(jsonList));
-      debugPrint("[ChatNotifier] Saved ${_sessions.length} sessions to local storage.");
+      debugPrint("[ChatNotifier] Saved ${jsonList.length} non-empty sessions to disk.");
     } catch (e) {
       debugPrint("[ChatNotifier] Error saving sessions to disk: $e");
     }
@@ -62,7 +66,11 @@ class ChatNotifier extends ChangeNotifier {
       if (await file.exists()) {
         final jsonString = await file.readAsString();
         final jsonList = jsonDecode(jsonString) as List<dynamic>;
-        _sessions = jsonList.map((s) => ChatSession.fromJson(s as Map<String, dynamic>)).toList();
+        // Filter out empty sessions during load as a safety check.
+        _sessions = jsonList
+            .map((s) => ChatSession.fromJson(s as Map<String, dynamic>))
+            .where((s) => s.messages.isNotEmpty)
+            .toList();
         _sortSessions();
         _currentSessionId = _sessions.isNotEmpty ? _sessions.first.id : null;
         debugPrint("[ChatNotifier] Loaded ${_sessions.length} sessions from disk.");
@@ -93,13 +101,32 @@ class ChatNotifier extends ChangeNotifier {
   }
 
   void selectSession(String sessionId) {
+    // Discard any empty sessions when switching (except the target session itself)
+    _sessions.removeWhere((s) => s.messages.isEmpty && s.id != sessionId);
     _currentSessionId = sessionId;
     _isWriting = false;
     _repository.startNewSession();
+    _saveSessionsToDisk();
     notifyListeners();
   }
 
   String createNewSession({String title = 'New Chat'}) {
+    // If there is already an empty session in the list, reuse it and bring it to the top!
+    final existingEmptyIndex = _sessions.indexWhere((s) => s.messages.isEmpty);
+    if (existingEmptyIndex != -1) {
+      final existingEmpty = _sessions.removeAt(existingEmptyIndex);
+      _sessions.insert(0, existingEmpty);
+      _currentSessionId = existingEmpty.id;
+      _isWriting = false;
+      _repository.startNewSession();
+      _sortSessions();
+      notifyListeners();
+      return existingEmpty.id;
+    }
+
+    // Clean up any other empty sessions just in case
+    _sessions.removeWhere((s) => s.messages.isEmpty);
+
     final newId = 'session_${DateTime.now().millisecondsSinceEpoch}';
     final newSession = ChatSession(
       id: newId,
@@ -148,7 +175,25 @@ class ChatNotifier extends ChangeNotifier {
   }
 
   void deleteSession(String sessionId) {
-    _sessions.removeWhere((s) => s.id == sessionId);
+    final index = _sessions.indexWhere((s) => s.id == sessionId);
+    if (index != -1) {
+      final session = _sessions[index];
+      for (final msg in session.messages) {
+        if (msg.attachmentPath != null &&
+            !msg.attachmentPath!.startsWith('mock_path')) {
+          try {
+            final file = File(msg.attachmentPath!);
+            if (file.existsSync()) {
+              file.deleteSync();
+              debugPrint("[Storage] Deleted local attachment file on session delete: ${msg.attachmentPath}");
+            }
+          } catch (e) {
+            debugPrint("[Storage] Error deleting local attachment file: $e");
+          }
+        }
+      }
+      _sessions.removeAt(index);
+    }
     if (_currentSessionId == sessionId) {
       _currentSessionId = _sessions.isNotEmpty ? _sessions.first.id : null;
     }
@@ -201,6 +246,20 @@ class ChatNotifier extends ChangeNotifier {
   Future<void> clearAll() async {
     if (_currentSessionId != null) {
       final session = currentSession!;
+      for (final msg in session.messages) {
+        if (msg.attachmentPath != null &&
+            !msg.attachmentPath!.startsWith('mock_path')) {
+          try {
+            final file = File(msg.attachmentPath!);
+            if (file.existsSync()) {
+              file.deleteSync();
+              debugPrint("[Storage] Deleted local attachment file during clearAll: ${msg.attachmentPath}");
+            }
+          } catch (e) {
+            debugPrint("[Storage] Error deleting local attachment file: $e");
+          }
+        }
+      }
       session.messages.clear();
       _isWriting = false;
       _saveSessionsToDisk();
