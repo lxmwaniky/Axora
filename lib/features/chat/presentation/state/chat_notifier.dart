@@ -148,7 +148,25 @@ class ChatNotifier extends ChangeNotifier {
   }
 
   void deleteSession(String sessionId) {
-    _sessions.removeWhere((s) => s.id == sessionId);
+    final index = _sessions.indexWhere((s) => s.id == sessionId);
+    if (index != -1) {
+      final session = _sessions[index];
+      for (final msg in session.messages) {
+        if (msg.attachmentPath != null &&
+            !msg.attachmentPath!.startsWith('mock_path')) {
+          try {
+            final file = File(msg.attachmentPath!);
+            if (file.existsSync()) {
+              file.deleteSync();
+              debugPrint("[Storage] Deleted local attachment file on session delete: ${msg.attachmentPath}");
+            }
+          } catch (e) {
+            debugPrint("[Storage] Error deleting local attachment file: $e");
+          }
+        }
+      }
+      _sessions.removeAt(index);
+    }
     if (_currentSessionId == sessionId) {
       _currentSessionId = _sessions.isNotEmpty ? _sessions.first.id : null;
     }
@@ -201,6 +219,20 @@ class ChatNotifier extends ChangeNotifier {
   Future<void> clearAll() async {
     if (_currentSessionId != null) {
       final session = currentSession!;
+      for (final msg in session.messages) {
+        if (msg.attachmentPath != null &&
+            !msg.attachmentPath!.startsWith('mock_path')) {
+          try {
+            final file = File(msg.attachmentPath!);
+            if (file.existsSync()) {
+              file.deleteSync();
+              debugPrint("[Storage] Deleted local attachment file during clearAll: ${msg.attachmentPath}");
+            }
+          } catch (e) {
+            debugPrint("[Storage] Error deleting local attachment file: $e");
+          }
+        }
+      }
       session.messages.clear();
       _isWriting = false;
       _saveSessionsToDisk();

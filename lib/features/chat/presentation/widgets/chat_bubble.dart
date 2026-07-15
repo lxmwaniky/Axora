@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -42,70 +43,73 @@ class ChatBubble extends StatelessWidget {
                 ),
               )
             else
-              Container(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.75,
-                ),
-                decoration: BoxDecoration(
-                  color: isUser ? null : AppColors.receiverBubble,
-                  gradient: isUser ? AppColors.instagramGradient : null,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(20),
-                    topRight: const Radius.circular(20),
-                    bottomLeft: Radius.circular(isUser ? 20 : 4),
-                    bottomRight: Radius.circular(isUser ? 4 : 20),
+              GestureDetector(
+                onLongPress: isUser ? null : () => _copyToClipboard(context, message.text),
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.75,
                   ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (message.hasAttachment) ...[
-                      _buildAttachmentWidget(context, isUser),
-                      const SizedBox(height: 8),
+                  decoration: BoxDecoration(
+                    color: isUser ? null : AppColors.receiverBubble,
+                    gradient: isUser ? AppColors.instagramGradient : null,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(20),
+                      topRight: const Radius.circular(20),
+                      bottomLeft: Radius.circular(isUser ? 20 : 4),
+                      bottomRight: Radius.circular(isUser ? 4 : 20),
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (message.hasAttachment) ...[
+                        _buildAttachmentWidget(context, isUser),
+                        const SizedBox(height: 8),
+                      ],
+                      if (isUser)
+                        Text(
+                          message.text,
+                          style: TextStyle(
+                            color: AppColors.senderBubbleText,
+                            fontSize: 15,
+                            height: 1.3,
+                          ),
+                        )
+                      else
+                        MarkdownBody(
+                          data: message.text,
+                          styleSheet: MarkdownStyleSheet(
+                            p: TextStyle(
+                              color: AppColors.receiverBubbleText,
+                              fontSize: 15,
+                              height: 1.4,
+                            ),
+                            strong: TextStyle(
+                              color: AppColors.receiverBubbleText,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            h2: TextStyle(
+                              color: AppColors.receiverBubbleText,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              height: 1.6,
+                            ),
+                            listBullet: TextStyle(
+                              color: AppColors.receiverBubbleText,
+                              fontSize: 15,
+                            ),
+                            code: TextStyle(
+                              color: AppColors.receiverBubbleText,
+                              backgroundColor: Colors.black26,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
                     ],
-                    if (isUser)
-                      Text(
-                        message.text,
-                        style: TextStyle(
-                          color: AppColors.senderBubbleText,
-                          fontSize: 15,
-                          height: 1.3,
-                        ),
-                      )
-                    else
-                      MarkdownBody(
-                        data: message.text,
-                        styleSheet: MarkdownStyleSheet(
-                          p: TextStyle(
-                            color: AppColors.receiverBubbleText,
-                            fontSize: 15,
-                            height: 1.4,
-                          ),
-                          strong: TextStyle(
-                            color: AppColors.receiverBubbleText,
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          h2: TextStyle(
-                            color: AppColors.receiverBubbleText,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            height: 1.6,
-                          ),
-                          listBullet: TextStyle(
-                            color: AppColors.receiverBubbleText,
-                            fontSize: 15,
-                          ),
-                          code: TextStyle(
-                            color: AppColors.receiverBubbleText,
-                            backgroundColor: Colors.black26,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
               ),
             // Timestamp or pending state
@@ -127,55 +131,92 @@ class ChatBubble extends StatelessWidget {
 
   Widget _buildAttachmentWidget(BuildContext context, bool isUser) {
     if (message.attachmentType == AttachmentType.image) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          color: Colors.black26,
-          height: 150,
-          width: double.infinity,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Use a mock camera gradient as we are local sandbox
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF434343), Color(0xFF000000)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                child: const Center(
-                  child: Icon(
-                    Icons.image_outlined,
-                    color: Colors.white60,
-                    size: 40,
-                  ),
-                ),
-              ),
-              Positioned(
-                bottom: 8,
-                left: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black87,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.camera_alt, color: Colors.white, size: 12),
-                      SizedBox(width: 4),
-                      Text(
-                        'Captured Image',
-                        style: TextStyle(color: Colors.white, fontSize: 10),
+      final bool hasRealFile = message.attachmentPath != null &&
+          !message.attachmentPath!.startsWith('mock_path') &&
+          File(message.attachmentPath!).existsSync();
+
+      return GestureDetector(
+        onTap: () {
+          if (hasRealFile) {
+            _showFullScreenImage(context, message.attachmentPath!);
+          }
+        },
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            color: Colors.black26,
+            height: 150,
+            width: double.infinity,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (hasRealFile)
+                  Hero(
+                    tag: message.attachmentPath!,
+                    child: Image.file(
+                      File(message.attachmentPath!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Color(0xFF434343), Color(0xFF000000)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.image_outlined,
+                              color: Colors.white60,
+                              size: 40,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                else
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF434343), Color(0xFF000000)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                    ],
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.image_outlined,
+                        color: Colors.white60,
+                        size: 40,
+                      ),
+                    ),
                   ),
-                ),
-              )
-            ],
+                Positioned(
+                  bottom: 8,
+                  left: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.camera_alt, color: Colors.white, size: 12),
+                        const SizedBox(width: 4),
+                        Text(
+                          hasRealFile ? 'Photo' : 'Captured Image',
+                          style: const TextStyle(color: Colors.white, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              ],
+            ),
           ),
         ),
       );
@@ -278,6 +319,78 @@ class ChatBubble extends StatelessWidget {
     final hour = time.hour.toString().padLeft(2, '0');
     final minute = time.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
+  }
+
+  void _copyToClipboard(BuildContext context, String text) {
+    Clipboard.setData(ClipboardData(text: text)).then((_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF1E2732),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+            content: const Row(
+              children: [
+                Icon(Icons.copy_all, color: Colors.greenAccent, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Response copied to clipboard!',
+                  style: TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    });
+  }
+
+  void _showFullScreenImage(BuildContext context, String path) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierDismissible: true,
+        barrierColor: Colors.black.withValues(alpha: 0.9),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  child: Center(
+                    child: Hero(
+                      tag: path,
+                      child: Image.file(
+                        File(path),
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  ),
+                ),
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: CircleAvatar(
+                        backgroundColor: Colors.black45,
+                        child: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
