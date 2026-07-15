@@ -18,8 +18,6 @@ class ChatRepositoryImpl implements ChatRepository {
   bool _engineReady = false;   // true once the model weights are loaded
   bool _chatReady  = false;    // true once _chat is open and usable
 
-
-
   ChatRepositoryImpl() {
     _history.add(
       ChatMessage(
