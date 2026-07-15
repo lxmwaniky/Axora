@@ -14,11 +14,8 @@ class FlashcardCreateScreen extends StatefulWidget {
 }
 
 class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
-  final _titleController = TextEditingController();
   final _topicController = TextEditingController();
-  final _textController = TextEditingController();
   
-  String _selectedSource = 'file'; // 'file' or 'text'
   String? _selectedFilePath;
   String? _selectedFileName;
   String? _selectedFileType; // 'pdf' or 'image'
@@ -34,15 +31,13 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
     "Axora is scanning your materials... 📝",
     "Extracting key learning concepts... 🧠",
     "Formulating question & answer pairs... 🎴",
-    "Structuring your offline deck... 💾",
+    "Structuring your deck... 💾",
     "Polishing cards for active recall... 🚀",
   ];
 
   @override
   void dispose() {
-    _titleController.dispose();
     _topicController.dispose();
-    _textController.dispose();
     _messageTimer?.cancel();
     super.dispose();
   }
@@ -83,12 +78,6 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
           _selectedFilePath = path;
           _selectedFileName = name;
           _selectedFileType = (ext == 'pdf') ? 'pdf' : 'image';
-          
-          // Pre-populate title if empty
-          if (_titleController.text.trim().isEmpty) {
-            final readableName = name.replaceAll('.$ext', '').replaceAll('_', ' ').replaceAll('-', ' ');
-            _titleController.text = readableName[0].toUpperCase() + readableName.substring(1);
-          }
         });
       }
     } catch (e) {
@@ -111,28 +100,21 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
   }
 
   Future<void> _handleGenerate() async {
-    final title = _titleController.text.trim();
     final topic = _topicController.text.trim();
-    final text = _textController.text.trim();
 
-    if (_selectedSource == 'file' && _selectedFilePath == null) {
+    if (_selectedFilePath == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a PDF or image file.')),
-      );
-      return;
-    }
-    if (_selectedSource == 'text' && text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please paste some text notes.')),
+        const SnackBar(content: Text('Please select a PDF or image file first.')),
       );
       return;
     }
 
-    final finalTitle = title.isEmpty
-        ? (_selectedFileName != null ? _selectedFileName!.split('.').first : 'Study Deck')
-        : title;
+    // Default title to the filename without extension
+    final String finalTitle = _selectedFileName != null
+        ? _selectedFileName!.split('.').first
+        : 'Study Deck';
         
-    final finalTopic = topic.isEmpty ? 'General Study' : topic;
+    final String finalTopic = topic.isEmpty ? 'General Study' : topic;
 
     setState(() {
       _isGenerating = true;
@@ -143,9 +125,9 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
       await widget.notifier.generateDeck(
         title: finalTitle,
         topic: finalTopic,
-        text: _selectedSource == 'text' ? text : null,
-        imagePath: (_selectedSource == 'file' && _selectedFileType == 'image') ? _selectedFilePath : null,
-        pdfPath: (_selectedSource == 'file' && _selectedFileType == 'pdf') ? _selectedFilePath : null,
+        text: null,
+        imagePath: _selectedFileType == 'image' ? _selectedFilePath : null,
+        pdfPath: _selectedFileType == 'pdf' ? _selectedFilePath : null,
       );
 
       if (mounted) {
@@ -196,62 +178,15 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'Upload study guides, slides, or notes to build flashcards offline.',
+                  'Upload study guides, slides, or textbook photos to build flashcards.',
                   style: TextStyle(color: Colors.white60, fontSize: 14),
                 ),
                 const SizedBox(height: 24),
 
-                // Source Tabs
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildSourceTab(
-                        title: 'Upload Media',
-                        icon: Icons.upload_file_rounded,
-                        isSelected: _selectedSource == 'file',
-                        onTap: () => setState(() => _selectedSource = 'file'),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: _buildSourceTab(
-                        title: 'Paste Text',
-                        icon: Icons.note_alt_outlined,
-                        isSelected: _selectedSource == 'text',
-                        onTap: () => setState(() => _selectedSource = 'text'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Upload Area or Text Input
-                if (_selectedSource == 'file') ...[
-                  _buildSectionHeader('STUDY GUIDE OR PHOTO'),
-                  const SizedBox(height: 8),
-                  _buildUploadBox(),
-                ] else ...[
-                  _buildSectionHeader('STUDY NOTES'),
-                  const SizedBox(height: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white10),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: TextField(
-                      controller: _textController,
-                      maxLines: 6,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        hintText: 'Paste the textbook chapter, lecture transcripts, or notes to build flashcards...',
-                        hintStyle: TextStyle(color: Colors.white30),
-                        border: InputBorder.none,
-                      ),
-                    ),
-                  ),
-                ],
+                // Upload Area
+                _buildSectionHeader('STUDY GUIDE OR PHOTO'),
+                const SizedBox(height: 8),
+                _buildUploadBox(),
                 const SizedBox(height: 24),
 
                 // Topic Field (Optional)
@@ -261,16 +196,6 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
                   controller: _topicController,
                   hintText: 'e.g., Mitosis phases, React hooks, Heart ventricles...',
                   icon: Icons.topic_rounded,
-                ),
-                const SizedBox(height: 20),
-
-                // Deck Title Field (Optional)
-                _buildSectionHeader('DECK TITLE (OPTIONAL)'),
-                const SizedBox(height: 8),
-                _buildTextField(
-                  controller: _titleController,
-                  hintText: 'Defaults to file name or "Study Deck"',
-                  icon: Icons.title_rounded,
                 ),
                 const SizedBox(height: 40),
 
@@ -296,7 +221,7 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
                       ),
                     ),
                     child: const Text(
-                      'Generate Deck (Offline AI)',
+                      'Generate Deck',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -334,14 +259,6 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        "This runs entirely offline on your device using Gemma 4.",
-                        style: TextStyle(
-                          color: Colors.white38,
-                          fontSize: 12,
                         ),
                       ),
                     ],
@@ -394,47 +311,6 @@ class _FlashcardCreateScreenState extends State<FlashcardCreateScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSourceTab({
-    required String title,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white10 : AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? const Color(0xFFEC4899) : Colors.white10,
-            width: 1.5,
-          ),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? const Color(0xFFEC4899) : Colors.white54,
-              size: 24,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white54,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

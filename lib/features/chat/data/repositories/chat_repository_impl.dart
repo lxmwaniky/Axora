@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
@@ -215,6 +216,11 @@ class ChatRepositoryImpl implements ChatRepository {
         debugPrint("[AudioDebug] Image path is null or mock, using fallback bytes");
         bytes = _getFallbackImageBytes();
       }
+      
+      // Scale down image to a max dimension of 384 pixels to ensure fast, offline 1-2s prefill latency
+      bytes = await _resizeImageBytes(bytes, 384);
+      debugPrint("[AudioDebug] Resized image bytes: ${bytes.length} bytes");
+
       final String basePrompt = userMessage.text.trim().isEmpty
           ? "Please explain and analyze this image."
           : "Please analyze the attached image to answer this query: ${userMessage.text.trim()}";
@@ -271,5 +277,57 @@ class ChatRepositoryImpl implements ChatRepository {
   Uint8List _getFallbackAudioBytes() {
     const base64Wav = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAIA+AAABAAgAZGF0YQAAAAA=';
     return base64Decode(base64Wav);
+  }
+
+  Future<Uint8List> _resizeImageBytes(Uint8List originalBytes, int maxDimension) async {
+    try {
+      final Completer<ui.Image> completer = Completer();
+      ui.decodeImageFromList(originalBytes, (ui.Image img) {
+        completer.complete(img);
+      });
+      final ui.Image image = await completer.future;
+
+      int width = image.width;
+      int height = image.height;
+
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = (height * maxDimension / width).round();
+          width = maxDimension;
+        } else {
+          width = (width * maxDimension / height).round();
+          height = maxDimension;
+        }
+      } else {
+        image.dispose();
+        return originalBytes;
+      }
+
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      final paint = ui.Paint()..filterQuality = ui.FilterQuality.medium;
+
+      canvas.drawImageRect(
+        image,
+        ui.Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+        paint,
+      );
+
+      final picture = recorder.endRecording();
+      final resizedImage = await picture.toImage(width, height);
+      final byteData = await resizedImage.toByteData(format: ui.ImageByteFormat.png);
+      
+      image.dispose();
+      resizedImage.dispose();
+      picture.dispose();
+
+      if (byteData != null) {
+        return byteData.buffer.asUint8List();
+      }
+    } catch (e) {
+      debugPrint('[ImageResize] Error resizing image: $e');
+    }
+    return originalBytes;
   }
 }

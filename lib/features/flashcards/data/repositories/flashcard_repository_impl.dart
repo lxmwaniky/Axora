@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:path_provider/path_provider.dart';
@@ -124,6 +126,7 @@ Content: ${extractedText ?? ""}
       } else {
         bytes = _getFallbackImageBytes();
       }
+      bytes = await _resizeImageBytes(bytes, 384);
       message = Message.withImage(
         text: '<|image><image|>\n$basePrompt',
         imageBytes: bytes,
@@ -198,5 +201,57 @@ Content: ${extractedText ?? ""}
   Uint8List _getFallbackImageBytes() {
     const base64Png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
     return base64Decode(base64Png);
+  }
+
+  Future<Uint8List> _resizeImageBytes(Uint8List originalBytes, int maxDimension) async {
+    try {
+      final Completer<ui.Image> completer = Completer();
+      ui.decodeImageFromList(originalBytes, (ui.Image img) {
+        completer.complete(img);
+      });
+      final ui.Image image = await completer.future;
+
+      int width = image.width;
+      int height = image.height;
+
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = (height * maxDimension / width).round();
+          width = maxDimension;
+        } else {
+          width = (width * maxDimension / height).round();
+          height = maxDimension;
+        }
+      } else {
+        image.dispose();
+        return originalBytes;
+      }
+
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      final paint = ui.Paint()..filterQuality = ui.FilterQuality.medium;
+
+      canvas.drawImageRect(
+        image,
+        ui.Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+        paint,
+      );
+
+      final picture = recorder.endRecording();
+      final resizedImage = await picture.toImage(width, height);
+      final byteData = await resizedImage.toByteData(format: ui.ImageByteFormat.png);
+      
+      image.dispose();
+      resizedImage.dispose();
+      picture.dispose();
+
+      if (byteData != null) {
+        return byteData.buffer.asUint8List();
+      }
+    } catch (e) {
+      debugPrint('[ImageResize] Error resizing image: $e');
+    }
+    return originalBytes;
   }
 }
