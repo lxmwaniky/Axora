@@ -3,13 +3,17 @@ import '../../../../core/theme/app_colors.dart';
 import '../../domain/entities/chat_session.dart';
 import '../state/chat_notifier.dart';
 import 'chat_screen.dart';
+import '../../../../features/flashcards/presentation/state/flashcard_notifier.dart';
+import '../../../../features/flashcards/presentation/screens/flashcard_lounge_screen.dart';
 
 class HubScreen extends StatelessWidget {
   final ChatNotifier chatNotifier;
+  final FlashcardNotifier flashcardNotifier;
 
   const HubScreen({
     super.key,
     required this.chatNotifier,
+    required this.flashcardNotifier,
   });
 
   void _startNewChat(BuildContext context, String title) {
@@ -168,7 +172,14 @@ class HubScreen extends StatelessWidget {
                     end: Alignment.bottomRight,
                   ),
                   onTap: () {
-                    AppToast.show(context, 'Flashcard lounge opening soon!');
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => FlashcardLoungeScreen(
+                          notifier: flashcardNotifier,
+                        ),
+                      ),
+                    );
                   },
                 ),
               ],
