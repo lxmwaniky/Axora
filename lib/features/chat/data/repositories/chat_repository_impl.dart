@@ -219,7 +219,7 @@ class ChatRepositoryImpl implements ChatRepository {
       }
       final String basePrompt = userMessage.text.trim().isEmpty
           ? "Please explain and analyze this image."
-          : userMessage.text;
+          : "Please analyze the attached image to answer this query: ${userMessage.text.trim()}";
       final promptText = "<|image><image|>\n$basePrompt";
       debugPrint("[AudioDebug] Final image prompt sent to Gemma: '$promptText'");
       return Message.withImage(
@@ -248,7 +248,7 @@ class ChatRepositoryImpl implements ChatRepository {
       }
       final String basePrompt = userMessage.text.trim().isEmpty
           ? "Listen to the voice note and respond directly to the query or instruction spoken in it."
-          : userMessage.text;
+          : "Please analyze the attached audio to answer this query: ${userMessage.text.trim()}";
       final promptText = "<|audio><audio|>\n$basePrompt";
       debugPrint("[AudioDebug] Final audio prompt sent to Gemma: '$promptText' (using fallback: $usedFallback)");
       return Message.withAudio(

@@ -31,6 +31,7 @@ class _MessageInputState extends State<MessageInput> {
   String? _selectedAttachmentPath;
   AttachmentType _selectedAttachmentType = AttachmentType.none;
   final ImagePicker _picker = ImagePicker();
+  bool _isPickingImage = false;
 
   // Audio Recording State
   final AudioRecorder _audioRecorder = AudioRecorder();
@@ -309,6 +310,8 @@ class _MessageInputState extends State<MessageInput> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
+    if (_isPickingImage) return;
+    _isPickingImage = true;
     try {
       final XFile? image = await _picker.pickImage(
         source: source,
@@ -333,6 +336,8 @@ class _MessageInputState extends State<MessageInput> {
           ),
         );
       }
+    } finally {
+      _isPickingImage = false;
     }
   }
 
