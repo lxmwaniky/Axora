@@ -38,7 +38,7 @@ To operate within the 2048-token context window of Gemma 4 without KV-cache pref
 
 ## 💻 Technical & Engineering Challenges Resolved
 
-Read our detailed project documentation in [writeup.md](writeup.md) to learn how we addressed:
+Read our detailed project documentation in [Kaggle Writeup](https://www.kaggle.com/competitions/build-with-gemma-gdg-embu/writeups/axora) to learn how we addressed:
 1. **Image Preprocessing Latency**: Resizing high-resolution images to fit the Gemma 4 vision encoder grid without CPU bottlenecks.
 2. **JSON Sanitization**: Dealing with Markdown brackets and prose wrapped around JSON outputs from the LLM.
 3. **Session State Corruption**: Managing shared singletons in the native LiteRT FFI bridge.
