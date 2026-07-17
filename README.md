@@ -2,6 +2,8 @@
 
 Axora is a privacy-first, offline-capable, on-device AI study assistant built with Flutter. It leverages Google's **Gemma 4** model via the **LiteRT-LM** engine to digest notes, transcribe and analyze voice recordings, and help students study efficiently with flashcards—all without an internet connection (completely functional in Airplane Mode).
 
+<img width="2752" height="1536" alt="gemma" src="https://github.com/user-attachments/assets/e3e3beaf-0f8f-42cb-a0f6-aa132a9fd6cd" />
+
 ---
 
 ## 🚀 Key Features
