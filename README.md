@@ -62,3 +62,7 @@ flutter build apk --release --split-per-abi
 # Generate the Android App Bundle for Google Play
 flutter build appbundle --release
 ```
+
+---
+
+*Gemma is a trademark of Google LLC.*
